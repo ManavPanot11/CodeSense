@@ -24,6 +24,7 @@ import FileExplorer from "./components/FileExplorer";
 import EditorTabs from "./components/EditorTabs";
 import GitHubPane from "./components/GitHubPane";
 import SourceControlPane from "./components/SourceControlPane";
+import MenuBar from "./components/MenuBar";
 import { detectLanguageFromContent, getExtensionForLanguage, getFileTypeInfo } from "@/lib/fileTypes";
 import JSZip from "jszip";
 
@@ -41,6 +42,7 @@ export default function CodeSenseApp() {
     saveActiveTab,
     setCursorPosition,
     uploadWorkspace,
+    importGitHubRepo,
     addFiles,
     createFile,
     createFolder,
@@ -133,7 +135,11 @@ export default function CodeSenseApp() {
   const language = activeTab?.language || "plaintext";
 
   // ── Automatic Language Detection ─────────────────────────────────
+  const [renameState, setRenameState] = useState<{ id: string, name: string } | null>(null);
+  
+  const editorRef = useRef<any>(null);
   const lastDetectedLangRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!activeTab || !code.trim()) return;
 
@@ -445,6 +451,7 @@ export default function CodeSenseApp() {
   };
 
   const handleEditorMount = (editor: any) => {
+    editorRef.current = editor;
     editor.onDidChangeCursorPosition((e: any) => {
       setCursorPosition(e.position.lineNumber, e.position.column);
     });
@@ -635,6 +642,36 @@ export default function CodeSenseApp() {
         </div>
       </header>
 
+      <MenuBar
+        onNewFile={() => { setSidebarOpen(true); setActiveLeftTab("explorer"); createFile(null, "untitled"); }}
+        onNewFolder={() => { setSidebarOpen(true); setActiveLeftTab("explorer"); createFolder(null, "New Folder"); }}
+        onUploadFile={() => { setSidebarOpen(true); setActiveLeftTab("explorer"); document.getElementById('file-upload')?.click(); }}
+        onSave={() => saveActiveTab()}
+        onDownloadFile={handleExportCode}
+        onDownloadZip={() => {
+          if (selectedIds.size > 0) {
+            handleDownloadZip(selectedIds);
+          } else {
+            const allFiles = new Set<string>();
+            const addFiles = (nodes: any[]) => {
+              for (const node of nodes) {
+                if (node.type === "file") allFiles.add(node.id);
+                if (node.children) addFiles(node.children);
+              }
+            };
+            if (workspace) addFiles(workspace.fileTree);
+            handleDownloadZip(allFiles);
+          }
+        }}
+        onCloseFile={() => { if (activeTab) closeTab(activeTab.fileId); }}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onToggleTheme={toggleTheme}
+        onSetLeftTab={(tab) => { setSidebarOpen(true); setActiveLeftTab(tab); }}
+        editorRef={editorRef}
+        theme={theme}
+        hasActiveFile={!!activeTab}
+      />
+
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
@@ -672,7 +709,11 @@ export default function CodeSenseApp() {
               />
             )}
             {activeLeftTab === "github" && (
-              <GitHubPane onImportRepository={uploadWorkspace} theme={theme} />
+              <GitHubPane 
+                onImportRepository={importGitHubRepo} 
+                activeGitRepo={workspace.activeGitRepo}
+                theme={theme} 
+              />
             )}
             {activeLeftTab === "git" && (
               <SourceControlPane 

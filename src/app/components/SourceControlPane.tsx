@@ -17,6 +17,7 @@ export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo
   const [commitMessage, setCommitMessage] = useState("");
   const [isPushing, setIsPushing] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error", message: string } | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   const getAllFiles = (nodes: FileNode[]): FileNode[] => {
     let files: FileNode[] = [];
@@ -42,8 +43,23 @@ export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo
     return true;
   });
 
+  // Automatically select new modified files
+  React.useEffect(() => {
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      let changed = false;
+      modifiedFiles.forEach(f => {
+        if (!newSet.has(f.id)) {
+          newSet.add(f.id);
+          changed = true;
+        }
+      });
+      return changed ? newSet : prev;
+    });
+  }, [modifiedFiles.length]); // Intentionally only depend on length to auto-select newly added items
+
   const handlePush = async () => {
-    if (!commitMessage.trim() || !activeGitRepo || !session?.accessToken) return;
+    if (!commitMessage.trim() || !activeGitRepo || !session?.accessToken || selectedFiles.size === 0) return;
     setIsPushing(true);
     setStatus(null);
     
@@ -67,9 +83,11 @@ export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo
       });
       const baseTreeSha = commitResult.data.tree.sha;
 
-      // 3. Create blobs for all modified files
+      // 3. Create blobs for all selected modified files
       const treeUpdates: any[] = [];
-      for (const file of modifiedFiles) {
+      const filesToPush = modifiedFiles.filter(f => selectedFiles.has(f.id));
+      
+      for (const file of filesToPush) {
         if (!file.content) continue;
         const blobResult = await octokit.rest.git.createBlob({
           owner,
@@ -175,7 +193,7 @@ export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo
           />
           <button 
             onClick={handlePush}
-            disabled={isPushing || !commitMessage.trim() || modifiedFiles.length === 0}
+            disabled={isPushing || !commitMessage.trim() || selectedFiles.size === 0}
             className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
           >
             {isPushing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
@@ -193,9 +211,27 @@ export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo
         )}
 
         <div className="flex flex-col gap-1.5 mt-2">
-          <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-            Changes ({modifiedFiles.length})
-          </h4>
+          <div className="flex items-center justify-between">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+              Changes ({modifiedFiles.length})
+            </h4>
+            {modifiedFiles.length > 0 && (
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setSelectedFiles(new Set(modifiedFiles.map(f => f.id)))}
+                  className="text-[10px] text-blue-400 hover:underline"
+                >
+                  All
+                </button>
+                <button 
+                  onClick={() => setSelectedFiles(new Set())}
+                  className="text-[10px] text-gray-400 hover:underline"
+                >
+                  None
+                </button>
+              </div>
+            )}
+          </div>
           {modifiedFiles.length === 0 ? (
             <p className="text-xs text-gray-500 py-2">No changes detected.</p>
           ) : (
@@ -203,13 +239,27 @@ export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo
               {modifiedFiles.map(file => (
                 <div 
                   key={file.id} 
-                  className={`flex items-center gap-1.5 text-xs px-2 py-1.5 rounded ${
-                    theme === "light" ? "bg-gray-100 text-gray-700" : "bg-white/5 text-gray-300"
+                  className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded cursor-pointer ${
+                    theme === "light" ? "hover:bg-gray-100 text-gray-700" : "hover:bg-white/5 text-gray-300"
                   }`}
+                  onClick={() => {
+                    const newSet = new Set(selectedFiles);
+                    if (newSet.has(file.id)) newSet.delete(file.id);
+                    else newSet.add(file.id);
+                    setSelectedFiles(newSet);
+                  }}
                 >
+                  <input 
+                    type="checkbox" 
+                    checked={selectedFiles.has(file.id)}
+                    readOnly
+                    className="w-3 h-3 cursor-pointer"
+                  />
                   <FileCode className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                   <span className="truncate flex-1">{file.id}</span>
-                  <span className="text-[10px] text-emerald-400 font-mono">M</span>
+                  <span className={`text-[10px] font-mono ${file.originalContent ? 'text-emerald-400' : 'text-blue-400'}`}>
+                    {file.originalContent ? 'M' : 'A'}
+                  </span>
                 </div>
               ))}
             </div>

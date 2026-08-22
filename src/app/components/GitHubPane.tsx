@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
-import { GitBranch, LogIn, LogOut, Download, Loader2, Folder, Search } from "lucide-react";
+import { GitBranch, LogIn, LogOut, Download, Loader2, Folder, Search, RefreshCw } from "lucide-react";
 import { Octokit } from "@octokit/rest";
 import { FileNode } from "../hooks/useWorkspace";
 import { getFileTypeInfo } from "@/lib/fileTypes";
 
 interface GitHubPaneProps {
-  onImportRepository: (tree: FileNode[], repoInfo?: { owner: string; repo: string; branch: string }) => void;
+  onImportRepository: (tree: FileNode[], repoInfo: { owner: string; repo: string; branch: string }) => void;
+  activeGitRepo?: { owner: string; repo: string; branch: string };
   theme?: "dark" | "light";
 }
 
-export default function GitHubPane({ onImportRepository, theme = "dark" }: GitHubPaneProps) {
+export default function GitHubPane({ onImportRepository, activeGitRepo, theme = "dark" }: GitHubPaneProps) {
   const { data: sessionData, status } = useSession();
   const session = sessionData as any;
   const [repos, setRepos] = useState<any[]>([]);
@@ -115,9 +116,15 @@ export default function GitHubPane({ onImportRepository, theme = "dark" }: GitHu
       }
       onImportRepository(rootNodes, { owner, repo, branch: defaultBranch });
       
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to import repo", err);
-      alert("Failed to import repository.");
+      if (err.status === 404) {
+        alert("Repository not found. It might be empty or you might not have access.");
+      } else if (err.status === 403) {
+        alert("API rate limit exceeded or access denied. Try again later.");
+      } else {
+        alert("Failed to import repository.");
+      }
     } finally {
       setImportingRepo(null);
     }
@@ -183,6 +190,22 @@ export default function GitHubPane({ onImportRepository, theme = "dark" }: GitHu
           />
         </div>
       </div>
+
+      {activeGitRepo && (
+        <div className={`p-3 text-xs border-b ${theme === "light" ? "border-gray-200 bg-blue-50/50 text-blue-800" : "border-panel-border bg-blue-900/10 text-blue-300"}`}>
+          <div className="flex items-center justify-between">
+            <span className="font-semibold truncate">Active: {activeGitRepo.repo} ({activeGitRepo.branch})</span>
+            <button
+              onClick={() => handleImport(activeGitRepo.owner, activeGitRepo.repo, activeGitRepo.branch)}
+              disabled={importingRepo === activeGitRepo.repo}
+              className={`p-1 rounded transition-colors ${theme === "light" ? "hover:bg-blue-100" : "hover:bg-blue-800/50"}`}
+              title="Refresh Repository from GitHub"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${importingRepo === activeGitRepo.repo ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-2">
         {loading ? (

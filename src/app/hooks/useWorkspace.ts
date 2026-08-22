@@ -144,8 +144,22 @@ export function useWorkspace() {
   const updateActiveTabContent = useCallback((content: string) => {
     setWorkspaceState((prev) => {
       if (!prev.activeTabId) return prev;
+      
+      const updateNodeContent = (nodes: FileNode[]): FileNode[] => {
+        return nodes.map((node) => {
+          if (node.id === prev.activeTabId) {
+            return { ...node, content };
+          }
+          if (node.children) {
+            return { ...node, children: updateNodeContent(node.children) };
+          }
+          return node;
+        });
+      };
+
       return {
         ...prev,
+        fileTree: updateNodeContent(prev.fileTree),
         openTabs: prev.openTabs.map((t) =>
           t.fileId === prev.activeTabId ? { ...t, content } : t
         ),
@@ -234,6 +248,29 @@ export function useWorkspace() {
             ? { ...t, cursorPosition: { line, column } }
             : t
         ),
+      };
+    });
+  }, [setWorkspaceState]);
+
+  const importGitHubRepo = useCallback((repoTree: FileNode[], repoInfo: { owner: string; repo: string; branch: string }) => {
+    setWorkspaceState((prev) => {
+      const repoFolderId = `github:${repoInfo.owner}/${repoInfo.repo}`;
+      
+      // Remove any existing folder for this repo (re-import)
+      const filteredTree = prev.fileTree.filter(n => n.id !== repoFolderId);
+
+      // Wrap all imported files under a project folder
+      const repoFolder: FileNode = {
+        id: repoFolderId,
+        name: repoInfo.repo,
+        type: "folder",
+        children: repoTree,
+      };
+
+      return {
+        ...prev,
+        fileTree: [...filteredTree, repoFolder],
+        activeGitRepo: repoInfo,
       };
     });
   }, [setWorkspaceState]);
@@ -538,6 +575,7 @@ export function useWorkspace() {
     saveActiveTab,
     setCursorPosition,
     uploadWorkspace,
+    importGitHubRepo,
     addFiles,
     updateTabNameAndLanguage,
     createFile,
