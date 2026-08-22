@@ -86,7 +86,7 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
             model: modelToUse,
             stream: false,
             temperature: 0.1,
-            max_tokens: 250,
+            max_tokens: 1500, // Restored for deep real-time logic analysis
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt },
