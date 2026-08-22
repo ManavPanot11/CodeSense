@@ -260,10 +260,20 @@ export default function CodeSenseApp() {
     setActiveRightTab("console");
     const t0 = performance.now();
     try {
+      // Flatten the file tree to send to the backend
+      const files: { name: string, content: string }[] = [];
+      const gatherFiles = (nodes: any[]) => {
+        for (const n of nodes) {
+          if (n.type === "file") files.push({ name: n.name, content: n.content || "" });
+          if (n.type === "folder" && n.children) gatherFiles(n.children);
+        }
+      };
+      if (workspace) gatherFiles(workspace.fileTree);
+
       const res = await fetch("/api/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, language, stdin }),
+        body: JSON.stringify({ code, language, stdin, files }),
       });
       const data = await res.json();
       setExecTime(Math.round(performance.now() - t0));

@@ -42,7 +42,8 @@ function findPython(): string | null {
 async function executeViaLLM(
   code: string,
   language: string,
-  stdin: string
+  stdin: string,
+  files: { name: string, content: string }[] = []
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -80,11 +81,12 @@ Rules:
 - Capture ALL print output in stdout, preserving newlines.
 - If there are runtime or compilation errors, put the trace in stderr.
 - Return ONLY raw JSON, no markdown fences, no extra text.
-- If standard input is provided, pass it to the program.`,
+- If standard input is provided, pass it to the program.
+- You have access to other files in the workspace. Read them if the code requires them.`,
           },
           {
             role: "user",
-            content: `Execute this code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nStandard Input (stdin):\n${stdin}`,
+            content: `Execute this code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nStandard Input (stdin):\n${stdin}\n\nWorkspace Files:\n${files.map(f => `--- ${f.name} ---\n${f.content}\n`).join("\n")}`,
           },
         ],
         temperature: 0,
@@ -126,7 +128,7 @@ Rules:
 export async function POST(req: Request) {
   let tempFile = "";
   try {
-    const { code, language, stdin = "" } = await req.json();
+    const { code, language, stdin = "", files = [] } = await req.json();
 
     if (!code) {
       return NextResponse.json({ error: "No code provided" }, { status: 400 });
@@ -162,7 +164,7 @@ export async function POST(req: Request) {
     }
 
     // Use LLM fallback for everything else (or if local Python isn't found)
-    const result = await executeViaLLM(code, language, stdin);
+    const result = await executeViaLLM(code, language, stdin, files);
     return NextResponse.json(
       { ...result, cloud: true },
       { status: 200 }
