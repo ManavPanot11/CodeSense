@@ -367,7 +367,7 @@ export default function CodeSenseApp() {
         // Add readme file next to it
         const dirPath = relativePath.substring(0, relativePath.lastIndexOf("/") + 1);
         const baseName = file.name.includes(".") ? file.name.substring(0, file.name.lastIndexOf(".")) : file.name;
-        const readmePath = `${dirPath}${baseName}_readme.txt`;
+        const readmePath = `${dirPath}${baseName}_readme.md`;
         zip.file(readmePath, readme);
       }
 

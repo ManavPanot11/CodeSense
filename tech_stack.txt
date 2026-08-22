@@ -1,0 +1,58 @@
+=============================================================
+CODE SENSE - PROJECT TECH STACK & ARCHITECTURE DETAILED LIST
+=============================================================
+
+-------------------------------------------------------------
+1. CORE FRAMEWORK & LANGUAGE
+-------------------------------------------------------------
+- Next.js (16.3.2): The foundational React framework powering the application. It handles routing (App Router), serverless API endpoints (/api/*), and both client-side and server-side rendering.
+- React (19.2.8): Used for building the component-based UI.
+- TypeScript (v5): The primary programming language used across both frontend and backend for strong static typing, ensuring fewer runtime bugs and better developer experience.
+
+-------------------------------------------------------------
+2. USER INTERFACE & STYLING
+-------------------------------------------------------------
+- Tailwind CSS (v4): The utility-first CSS framework used for all styling. It enables the sleek dark/light modes, grid layouts, responsive design, and rapid UI prototyping without writing custom CSS files.
+- @monaco-editor/react: A React wrapper around Microsoft's Monaco Editor (the same engine that powers VS Code). It provides the core code-editing experience, including syntax highlighting, line numbers, indentation, and keybindings (like the intercepted Ctrl+S).
+- Lucide React: An icon library used for all the crisp, modern SVG icons throughout the UI (sidebar icons, file tree icons, etc.).
+
+-------------------------------------------------------------
+3. DATA MANAGEMENT & STORAGE
+-------------------------------------------------------------
+- idb-keyval: A super lightweight wrapper around the browser's native IndexedDB API. It is used to persist the user's workspace (File Tree, open tabs, active file content) locally in the browser so data isn't lost on refresh.
+- React State / Hooks: Custom hooks (`useWorkspace.ts`) manage the complex state of the file explorer, active tabs, and editor focus.
+
+-------------------------------------------------------------
+4. ARTIFICIAL INTELLIGENCE & ANALYSIS
+-------------------------------------------------------------
+- OpenRouter API: Acts as a unified gateway to access multiple LLMs (like Google Gemini 2.5 Flash, GPT-4o-mini).
+  - Code Analysis: The `/api/analyze` route uses OpenRouter to evaluate code in real-time, generating 4-dimensional scores (Function, Design, Security, Readability) and providing actionable improvements.
+  - README Generation: The `/api/generate-readme` route leverages a dedicated API key (`DOCS_OPENROUTER_API_KEY`) to read the code and generate professional, deeply annotated markdown documentation.
+
+-------------------------------------------------------------
+5. EXECUTION ENGINE
+-------------------------------------------------------------
+- Piston API (emkc.org): A high-performance remote code execution engine. 
+  - The `/api/execute` route securely sends the user's code and standard input (`stdin`) to Piston.
+  - Piston spins up isolated, secure Docker containers to compile and run the code (supporting C, C++, Java, Rust, Go, Python, JavaScript, etc.) and returns the stdout/stderr.
+
+-------------------------------------------------------------
+6. GITHUB INTEGRATION & AUTHENTICATION
+-------------------------------------------------------------
+- NextAuth.js (@next-auth): Handles secure user authentication using the GitHub OAuth provider.
+- Octokit Rest API (@octokit/rest): The official GitHub API client for JavaScript. It is used in the GitHub pane to fetch the authenticated user's repositories and recursively pull down repository file trees and contents to import them into the web editor.
+
+-------------------------------------------------------------
+7. UTILITIES
+-------------------------------------------------------------
+- JSZip: A library for creating, reading, and editing .zip files. It powers the "Download Workspace" feature, recursively zipping the virtual file tree from IndexedDB into a physical file the user can download.
+
+=============================================================
+KEY FEATURES
+=============================================================
+1. Multi-Language Execution: Compile and run over a dozen languages securely in the browser with `stdin` support.
+2. AI Live Analyzer: Provides a multi-dimensional dashboard scoring the active code for bugs, design, readability, and security flaws.
+3. AI Documentation: Automatically generates detailed, professional READMEs and annotated code snippets.
+4. GitHub Sync: Authenticate with GitHub to browse and import public/private repositories directly into the editor.
+5. Persistent Local Workspace: A virtual file system that remembers your folders, files, and unsaved changes across browser reloads.
+6. IDE Navigation: Multi-tab file editing, dynamic language detection, file creation/deletion/renaming, and safe keyboard shortcuts (Ctrl+S).

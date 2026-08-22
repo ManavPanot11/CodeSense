@@ -36,59 +36,56 @@ function findPython(): string | null {
 }
 
 /**
- * Execute code via Piston API as a code execution backend.
+ * Execute code via Wandbox API as a code execution backend.
  * This runs code natively in isolated containers completely for free.
  */
-async function executeViaPiston(
+async function executeViaWandbox(
   code: string,
   language: string,
   stdin: string,
   files: { name: string, content: string }[] = []
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  // Map our language names to Piston's language names
-  const languageMap: Record<string, string> = {
-    python: "python",
-    cpp: "c++",
-    "c++": "c++",
-    c: "c",
-    java: "java",
-    csharp: "csharp",
-    go: "go",
-    rust: "rust",
-    php: "php",
-    ruby: "ruby",
-    swift: "swift",
-    kotlin: "kotlin",
-    sql: "sqlite3",
-    javascript: "javascript",
-    typescript: "typescript",
+  // Map our language names to Wandbox's compiler names
+  const compilerMap: Record<string, string> = {
+    python: "cpython-3.13.8",
+    cpp: "gcc-13.2.0",
+    "c++": "gcc-13.2.0",
+    c: "gcc-13.2.0-c",
+    java: "openjdk-jdk-22+36",
+    csharp: "mono-6.12.0.199",
+    go: "go-1.23.2",
+    rust: "rust-1.82.0",
+    php: "php-8.3.12",
+    ruby: "ruby-4.0.2",
+    swift: "swift-6.0.1",
+    kotlin: "kotlin-1.9.22",
+    sql: "sqlite-3.46.1",
+    javascript: "nodejs-20.17.0",
+    typescript: "typescript-5.6.2",
   };
 
-  const pistonLang = languageMap[language.toLowerCase()];
-  if (!pistonLang) {
+  const compiler = compilerMap[language.toLowerCase()];
+  if (!compiler) {
     return {
       stdout: "",
-      stderr: `Language '${language}' is not supported by the execution backend.`,
+      stderr: `Language '${language}' is not supported by the Wandbox compiler backend.`,
       exitCode: 1,
     };
   }
 
+  const codesArray = files.map(f => ({ file: f.name, code: f.content }));
+
   try {
-    const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+    const response = await fetch("https://wandbox.org/api/compile.json", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        language: pistonLang,
-        version: "*",
-        files: [
-          { content: code },
-          ...files.map(f => ({ name: f.name, content: f.content }))
-        ],
+        compiler: compiler,
+        code: code,
+        codes: codesArray.length > 0 ? codesArray : undefined,
         stdin: stdin,
-        compile_timeout: 10000,
-        run_timeout: 5000,
       }),
     });
 
@@ -96,41 +93,21 @@ async function executeViaPiston(
       const errText = await response.text();
       return {
         stdout: "",
-        stderr: `Piston API error (${response.status}): ${errText}`,
+        stderr: `Wandbox API error (${response.status}): ${errText}`,
         exitCode: 1,
       };
     }
 
     const data = await response.json();
-    
-    let stdout = "";
-    let stderr = "";
-    let exitCode = 0;
-
-    if (data.compile && data.compile.code !== 0) {
-      return {
-        stdout: "",
-        stderr: data.compile.stderr || data.compile.output || "Compilation failed",
-        exitCode: data.compile.code,
-      };
-    }
-
-    if (data.run) {
-      stdout = data.run.stdout || "";
-      stderr = data.run.stderr || "";
-      exitCode = data.run.code || 0;
-      
-      if (data.run.signal) {
-        stderr += `\nProcess killed by signal: ${data.run.signal}`;
-        exitCode = 1;
-      }
-    }
-
-    return { stdout, stderr, exitCode };
+    return {
+      stdout: data.program_output || "",
+      stderr: data.compiler_error || data.program_error || "",
+      exitCode: data.status === "0" ? 0 : 1,
+    };
   } catch (err: any) {
     return {
       stdout: "",
-      stderr: `Failed to connect to Piston execution engine: ${err.message}`,
+      stderr: `Failed to connect to Wandbox execution engine: ${err.message}`,
       exitCode: 1,
     };
   }
@@ -174,8 +151,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Use Piston natively for everything else (or if local Python isn't found)
-    const result = await executeViaPiston(code, language, stdin, files);
+    // Use Wandbox natively for everything else (or if local Python isn't found)
+    const result = await executeViaWandbox(code, language, stdin, files);
     return NextResponse.json(
       { ...result, cloud: true },
       { status: 200 }
