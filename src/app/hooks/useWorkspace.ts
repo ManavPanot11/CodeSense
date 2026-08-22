@@ -51,6 +51,23 @@ const DEFAULT_STATE: WorkspaceState = {
 
 import { getFileTypeInfo } from "@/lib/fileTypes";
 
+const getUniqueName = (desiredName: string, siblings: FileNode[], isFolder: boolean = false): string => {
+  let newName = desiredName;
+  let counter = 1;
+  const siblingNames = new Set(siblings.map(s => s.name.toLowerCase()));
+  
+  const lastDotIndex = desiredName.lastIndexOf('.');
+  const hasExtension = !isFolder && lastDotIndex > 0 && lastDotIndex < desiredName.length - 1;
+  const baseName = hasExtension ? desiredName.substring(0, lastDotIndex) : desiredName;
+  const ext = hasExtension ? desiredName.substring(lastDotIndex) : "";
+
+  while (siblingNames.has(newName.toLowerCase())) {
+    newName = `${baseName}(${counter})${ext}`;
+    counter++;
+  }
+  return newName;
+};
+
 export function useWorkspace() {
   const [state, setState] = useState<WorkspaceState | null>(null);
 
@@ -229,18 +246,31 @@ export function useWorkspace() {
 
   const addFiles = useCallback((newNodes: FileNode[]) => {
     setWorkspaceState((prev) => {
-      // Find existing IDs to avoid duplicate collisions
-      const existingIds = new Set<string>();
-      const collectIds = (nodes: FileNode[]) => {
-        for (const n of nodes) {
-          existingIds.add(n.id);
-          if (n.children) collectIds(n.children);
+      const safelyRenamedNodes: FileNode[] = [];
+      let currentSiblings = [...prev.fileTree];
+      
+      for (const node of newNodes) {
+        const uniqueName = getUniqueName(node.name, currentSiblings, node.type === "folder");
+        // addFiles currently adds to root
+        const newId = uniqueName; 
+        
+        const newNode = { ...node, name: uniqueName, id: newId };
+        
+        if (newNode.children && uniqueName !== node.name) {
+          const updateChildIds = (children: FileNode[], oldParent: string, newParent: string): FileNode[] => {
+            return children.map(c => {
+              const cNewId = c.id.replace(oldParent, newParent);
+              return { ...c, id: cNewId, children: c.children ? updateChildIds(c.children, oldParent, newParent) : undefined };
+            });
+          };
+          newNode.children = updateChildIds(newNode.children, node.id, newId);
         }
-      };
-      collectIds(prev.fileTree);
+        
+        safelyRenamedNodes.push(newNode);
+        currentSiblings.push(newNode);
+      }
 
-      const filteredNewNodes = newNodes.filter(n => !existingIds.has(n.id));
-      const updatedTree = [...prev.fileTree, ...filteredNewNodes];
+      const updatedTree = [...prev.fileTree, ...safelyRenamedNodes];
 
       // Auto-open the first file if available
       let firstFile: FileNode | null = null;
@@ -286,8 +316,26 @@ export function useWorkspace() {
   }, [setWorkspaceState]);
 
 
-  const createFile = useCallback((parentId: string | null, name: string) => {
+  const createFile = useCallback((parentId: string | null, desiredName: string) => {
     setWorkspaceState((prev) => {
+      let siblings = prev.fileTree;
+      if (parentId) {
+        const findParent = (nodes: FileNode[]): FileNode | undefined => {
+          for (const node of nodes) {
+            if (node.id === parentId) return node;
+            if (node.children) {
+              const found = findParent(node.children);
+              if (found) return found;
+            }
+          }
+        };
+        const parent = findParent(prev.fileTree);
+        if (parent) {
+          siblings = parent.children || [];
+        }
+      }
+
+      const name = getUniqueName(desiredName, siblings, false);
       const typeInfo = getFileTypeInfo(name);
       const newFile: FileNode = {
         id: parentId ? `${parentId}/${name}` : name,
@@ -316,8 +364,26 @@ export function useWorkspace() {
     });
   }, [setWorkspaceState]);
 
-  const createFolder = useCallback((parentId: string | null, name: string) => {
+  const createFolder = useCallback((parentId: string | null, desiredName: string) => {
     setWorkspaceState((prev) => {
+      let siblings = prev.fileTree;
+      if (parentId) {
+        const findParent = (nodes: FileNode[]): FileNode | undefined => {
+          for (const node of nodes) {
+            if (node.id === parentId) return node;
+            if (node.children) {
+              const found = findParent(node.children);
+              if (found) return found;
+            }
+          }
+        };
+        const parent = findParent(prev.fileTree);
+        if (parent) {
+          siblings = parent.children || [];
+        }
+      }
+
+      const name = getUniqueName(desiredName, siblings, true);
       const newFolder: FileNode = {
         id: parentId ? `${parentId}/${name}` : name,
         name,
@@ -370,9 +436,43 @@ export function useWorkspace() {
     });
   }, [setWorkspaceState]);
 
-  const renameNode = useCallback((nodeId: string, newName: string) => {
+  const renameNode = useCallback((nodeId: string, desiredName: string) => {
     setWorkspaceState((prev) => {
       const parentId = nodeId.includes('/') ? nodeId.substring(0, nodeId.lastIndexOf('/')) : null;
+      
+      let siblings = prev.fileTree;
+      if (parentId) {
+        const findParent = (nodes: FileNode[]): FileNode | undefined => {
+          for (const node of nodes) {
+            if (node.id === parentId) return node;
+            if (node.children) {
+              const found = findParent(node.children);
+              if (found) return found;
+            }
+          }
+        };
+        const parent = findParent(prev.fileTree);
+        if (parent) {
+          siblings = parent.children || [];
+        }
+      }
+      
+      // Exclude the node itself from sibling checks so renaming to the same name (case diff) works safely
+      siblings = siblings.filter(s => s.id !== nodeId);
+
+      const findNode = (nodes: FileNode[]): FileNode | undefined => {
+        for (const node of nodes) {
+          if (node.id === nodeId) return node;
+          if (node.children) {
+            const found = findNode(node.children);
+            if (found) return found;
+          }
+        }
+      };
+      const targetNode = findNode(prev.fileTree);
+      if (!targetNode) return prev;
+
+      const newName = getUniqueName(desiredName, siblings, targetNode.type === "folder");
       const newId = parentId ? `${parentId}/${newName}` : newName;
 
       const renameInTree = (nodes: FileNode[]): FileNode[] => {
