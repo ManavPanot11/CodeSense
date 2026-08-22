@@ -9,14 +9,22 @@ export default function LandingPage() {
 
       {/* Hero Section */}
       <main className="flex-1 flex flex-col">
-        <section className="relative px-6 py-24 md:py-32 flex flex-col items-center justify-center text-center max-w-5xl mx-auto z-10">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/20 via-black to-black opacity-60"></div>
-          
-          <h1 className="text-5xl md:text-7xl font-black tracking-tighter mb-6 bg-clip-text text-transparent bg-gradient-to-b from-white to-white/50 leading-tight">
+        <section className="relative px-6 py-24 md:py-32 flex flex-col items-center justify-center text-center max-w-5xl mx-auto z-10 overflow-hidden">
+          {/* Cyan/Dark Volume & Lighting Effects */}
+          <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-cyan-900/30 via-black to-black opacity-90"></div>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-cyan-500/10 rounded-full blur-[120px] -z-10 pointer-events-none"></div>
+
+          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-2 text-gray-300 leading-tight">
             The Intelligent <br /> Code Sandbox.
           </h1>
           
-          <p className="text-lg md:text-xl text-gray-400 max-w-2xl mb-10 leading-relaxed font-light">
+          <div className="mb-10 select-none pointer-events-none drop-shadow-2xl">
+            <h2 className="text-7xl md:text-[9rem] font-black tracking-tighter text-white uppercase italic" style={{ textShadow: "5px 0px 15px rgba(0, 255, 255, 0.6), -5px 0px 15px rgba(255, 0, 60, 0.6), 4px 0 #00ffff, -4px 0 #ff003c" }}>
+              CodeSense
+            </h2>
+          </div>
+          
+          <p className="text-lg md:text-xl text-gray-400 max-w-2xl mb-12 leading-relaxed font-light drop-shadow-md">
             Write, compile, and execute code in over a dozen languages instantly. 
             Powered by next-generation AI to analyze your logic, pinpoint bugs, and generate professional documentation.
           </p>
@@ -24,7 +32,7 @@ export default function LandingPage() {
           <div className="flex flex-col sm:flex-row items-center gap-4">
             <Link
               href="/editor"
-              className="flex items-center justify-center gap-2 bg-primary text-black px-8 py-4 rounded-full text-lg font-bold hover:bg-primary-light transition-all hover:scale-105 duration-300 shadow-[0_0_40px_-10px_rgba(251,191,36,0.4)] w-full sm:w-auto"
+              className="flex items-center justify-center gap-2 bg-cyan-400 text-black px-10 py-4 rounded-full text-lg font-bold hover:bg-cyan-300 transition-all hover:scale-105 duration-300 shadow-[0_0_40px_-10px_rgba(34,211,238,0.5)] w-full sm:w-auto"
             >
               Start Coding Now
             </Link>
