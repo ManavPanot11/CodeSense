@@ -12,9 +12,12 @@ interface FileExplorerProps {
   onCreateFolder: (parentId: string | null, name: string) => void;
   onRename: (nodeId: string, newName: string) => void;
   onDelete: (nodeId: string) => void;
+  onRequestDelete?: (nodeIds: string[]) => void;
   onDownloadZip?: (selectedIds: Set<string>) => void;
   selectedIds: Set<string>;
   setSelectedIds: (ids: Set<string>) => void;
+  expandedFolders: Set<string>;
+  toggleFolder: (id: string) => void;
   theme?: "dark" | "light";
 }
 
@@ -33,9 +36,12 @@ export default function FileExplorer({
   onCreateFolder,
   onRename,
   onDelete,
+  onRequestDelete,
   onDownloadZip,
   selectedIds,
   setSelectedIds,
+  expandedFolders,
+  toggleFolder,
   theme = "dark"
 }: FileExplorerProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -177,7 +183,11 @@ export default function FileExplorer({
       const name = prompt("New name:", node.name);
       if (name && name !== node.name) onRename(node.id, name);
     } else if (action === "delete" && node) {
-      if (confirm(`Are you sure you want to delete ${node.name}?`)) onDelete(node.id);
+      if (onRequestDelete) {
+        onRequestDelete([node.id]);
+      } else {
+        if (confirm(`Are you sure you want to delete ${node.name}?`)) onDelete(node.id);
+      }
     } else if (action === "download" && node && !isDir) {
       const blob = new Blob([node.content || ""], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
@@ -194,6 +204,25 @@ export default function FileExplorer({
     setContextMenu(null);
   };
 
+  const getActiveParentId = () => {
+    if (selectedIds.size === 0) return null;
+    const firstSelected = Array.from(selectedIds)[0];
+    const findNode = (nodes: FileNode[]): FileNode | null => {
+      for (const n of nodes) {
+        if (n.id === firstSelected) return n;
+        if (n.children) {
+          const found = findNode(n.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const node = findNode(fileTree);
+    if (!node) return null;
+    if (node.type === "folder") return node.id;
+    return node.id.includes('/') ? node.id.substring(0, node.id.lastIndexOf('/')) : null;
+  };
+
   return (
     <div className={`w-64 border-r flex flex-col h-full ${
       theme === "light" 
@@ -206,14 +235,14 @@ export default function FileExplorer({
         <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">EXPLORER</h2>
         <div className="flex items-center gap-1.5 text-gray-400">
           <button 
-            onClick={() => onCreateFile(null, "untitled.py")} 
+            onClick={() => onCreateFile(getActiveParentId(), "untitled.py")} 
             className="p-1 hover:text-primary hover:bg-white/5 rounded transition-colors cursor-pointer" 
             title="New File"
           >
             <FilePlus className="w-3.5 h-3.5" />
           </button>
           <button 
-            onClick={() => onCreateFolder(null, "new-folder")} 
+            onClick={() => onCreateFolder(getActiveParentId(), "new-folder")} 
             className="p-1 hover:text-primary hover:bg-white/5 rounded transition-colors cursor-pointer" 
             title="New Folder"
           >
@@ -282,14 +311,16 @@ export default function FileExplorer({
             </button>
           </div>
         ) : (
-          fileTree.map(node => (
+          fileTree.map((node) => (
             <FileTreeNode 
               key={node.id} 
               node={node} 
-              onOpenFile={onOpenFile}
+              onOpenFile={onOpenFile} 
               onContextMenu={handleContextMenu}
               selectedIds={selectedIds}
               onNodeSelect={handleNodeSelect}
+              expandedFolders={expandedFolders}
+              toggleFolder={toggleFolder}
               theme={theme}
             />
           ))
@@ -385,6 +416,8 @@ function FileTreeNode({
   onContextMenu, 
   selectedIds,
   onNodeSelect,
+  expandedFolders,
+  toggleFolder,
   depth = 0,
   theme = "dark"
 }: { 
@@ -393,34 +426,36 @@ function FileTreeNode({
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void,
   selectedIds: Set<string>,
   onNodeSelect: (e: React.MouseEvent, node: FileNode) => void,
+  expandedFolders: Set<string>,
+  toggleFolder: (id: string) => void,
   depth?: number,
   theme?: "dark" | "light"
 }) {
-  const [isOpen, setIsOpen] = useState(true);
   const isDir = node.type === "folder";
+  const isOpen = isDir ? expandedFolders.has(node.id) : false;
   const typeInfo = getFileTypeInfo(node.name);
   const FileIcon = typeInfo.icon;
   const isSelected = selectedIds.has(node.id);
 
   const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onNodeSelect(e, node);
+    if (!isDir && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      onOpenFile(node.id, node.name, node.content || "", node.language || "plaintext");
+    }
+  };
+
+  const handleArrowClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (isDir) {
-      e.stopPropagation();
-      setIsOpen(!isOpen);
-      onNodeSelect(e, node);
-    } else {
-      e.stopPropagation();
-      onNodeSelect(e, node);
-      // Only open the file in the editor if it's a simple click (not ctrl/cmd multi-select)
-      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        onOpenFile(node.id, node.name, node.content || "", node.language || "plaintext");
-      }
+      toggleFolder(node.id);
     }
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // If we right click an unselected file, select it first
-    if (!isDir && !selectedIds.has(node.id)) {
+    // If we right click an unselected node, select it first
+    if (!selectedIds.has(node.id)) {
       onNodeSelect({ ...e, ctrlKey: false, metaKey: false } as React.MouseEvent, node);
     }
     onContextMenu(e, node);
@@ -441,7 +476,10 @@ function FileTreeNode({
         onContextMenu={handleContextMenu}
       >
         {isDir ? (
-          <span className="w-4 h-4 mr-1 flex items-center justify-center text-gray-500">
+          <span 
+            className="w-4 h-4 mr-1 flex items-center justify-center text-gray-500 hover:bg-white/10 rounded"
+            onClick={handleArrowClick}
+          >
             {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           </span>
         ) : (
@@ -466,6 +504,8 @@ function FileTreeNode({
               onContextMenu={onContextMenu}
               selectedIds={selectedIds}
               onNodeSelect={onNodeSelect}
+              expandedFolders={expandedFolders}
+              toggleFolder={toggleFolder}
               depth={depth + 1} 
               theme={theme}
             />

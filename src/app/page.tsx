@@ -60,11 +60,42 @@ export default function CodeSenseApp() {
 
   // Selected Files State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Folder Expansion State
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+  const toggleFolder = useCallback((folderId: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }, []);
 
   // Delete Modal State
   const [isDeleting, setIsDeleting] = useState(false);
   const [filesToDelete, setFilesToDelete] = useState<any[]>([]);
   const [deleteSuccessMsg, setDeleteSuccessMsg] = useState("");
+
+  const requestDelete = useCallback((nodeIds: string[]) => {
+    if (!workspace) return;
+    const nodes: any[] = [];
+    const findNodes = (list: any[]) => {
+      for (const n of list) {
+        if (nodeIds.includes(n.id)) nodes.push(n);
+        if (n.children) findNodes(n.children);
+      }
+    };
+    findNodes(workspace.fileTree);
+    if (nodes.length > 0) {
+      setFilesToDelete(nodes);
+      setIsDeleting(true);
+    }
+  }, [workspace]);
 
   // Theme State with localStorage persistence
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -342,18 +373,7 @@ export default function CodeSenseApp() {
       if (e.key === "Delete") {
         if (selectedIds.size > 0 && !isDeleting) {
           e.preventDefault();
-          const nodes: any[] = [];
-          const findNodes = (list: any[]) => {
-            for (const n of list) {
-              if (selectedIds.has(n.id)) nodes.push(n);
-              if (n.children) findNodes(n.children);
-            }
-          };
-          findNodes(workspace?.fileTree || []);
-          if (nodes.length > 0) {
-            setFilesToDelete(nodes);
-            setIsDeleting(true);
-          }
+          requestDelete(Array.from(selectedIds));
         }
       }
       if (e.key === "Escape" && isDeleting) {
@@ -362,7 +382,7 @@ export default function CodeSenseApp() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [saveActiveTab, executeCode, selectedIds, isDeleting, workspace]);
+  }, [saveActiveTab, executeCode, selectedIds, isDeleting, requestDelete, workspace]);
 
   const confirmDelete = () => {
     filesToDelete.forEach(node => {
@@ -628,13 +648,26 @@ export default function CodeSenseApp() {
                 onOpenFile={openFile} 
                 onUploadWorkspace={uploadWorkspace} 
                 onAddFiles={addFiles}
-                onCreateFile={createFile}
-                onCreateFolder={createFolder}
+                onCreateFile={(parentId, name) => {
+                  createFile(parentId, name);
+                  if (parentId) {
+                    setExpandedFolders(prev => new Set(prev).add(parentId));
+                  }
+                }}
+                onCreateFolder={(parentId, name) => {
+                  createFolder(parentId, name);
+                  if (parentId) {
+                    setExpandedFolders(prev => new Set(prev).add(parentId));
+                  }
+                }}
                 onRename={renameNode}
                 onDelete={deleteNode}
+                onRequestDelete={requestDelete}
                 onDownloadZip={handleDownloadZip}
                 selectedIds={selectedIds}
                 setSelectedIds={setSelectedIds}
+                expandedFolders={expandedFolders}
+                toggleFolder={toggleFolder}
                 theme={theme}
               />
             )}
