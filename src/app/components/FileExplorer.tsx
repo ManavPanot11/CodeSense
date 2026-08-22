@@ -379,6 +379,7 @@ export default function FileExplorer({
   );
 }
 
+function FileTreeNode({ 
   node, 
   onOpenFile, 
   onContextMenu, 
