@@ -19,6 +19,8 @@ import {
 import { useWorkspace } from "./hooks/useWorkspace";
 import FileExplorer from "./components/FileExplorer";
 import EditorTabs from "./components/EditorTabs";
+import GitHubPane from "./components/GitHubPane";
+import SourceControlPane from "./components/SourceControlPane";
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -33,9 +35,14 @@ export default function CodeSenseApp() {
     saveActiveTab,
     setCursorPosition,
     uploadWorkspace,
+    createFile,
+    createFolder,
+    renameNode,
+    deleteNode,
   } = useWorkspace();
 
   const [activeRightTab, setActiveRightTab] = useState("issues");
+  const [activeLeftTab, setActiveLeftTab] = useState<"explorer" | "github" | "git">("explorer");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -61,9 +68,14 @@ export default function CodeSenseApp() {
   const analyzeCode = useCallback(async () => {
     if (!code.trim()) return;
 
-    if (abortRef.current) abortRef.current.abort();
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
     const controller = new AbortController();
     abortRef.current = controller;
+
+    // Timeout to prevent infinite hanging
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
 
     setIsAnalyzing(true);
     setAnalysisResult(null);
@@ -75,6 +87,7 @@ export default function CodeSenseApp() {
         body: JSON.stringify({ code, language }),
         signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const data = await res.json();
       if (!res.ok) {
@@ -85,12 +98,24 @@ export default function CodeSenseApp() {
     } catch (err: any) {
       if (err.name !== "AbortError") {
         console.error("Analysis error:", err);
-        setAnalysisResult({ error: err.message });
+        setAnalysisResult({ error: err.message || "Request timed out or failed" });
+      } else {
+        setAnalysisResult({ error: "Analysis request timed out or was cancelled." });
       }
     } finally {
       setIsAnalyzing(false);
+      clearTimeout(timeoutId);
     }
   }, [code, language]);
+
+  // ── Auto-analyze ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!code.trim() || isExecuting) return;
+    const timer = setTimeout(() => {
+      analyzeCode();
+    }, 2500); // 2.5s debounce
+    return () => clearTimeout(timer);
+  }, [code, language, isExecuting, analyzeCode]);
 
   // ── Execute code ──────────────────────────────────────────────────
   const executeCode = useCallback(async () => {
@@ -214,7 +239,31 @@ export default function CodeSenseApp() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Left Panel Toggles */}
+          <div className="flex items-center gap-1 sm:gap-2 mr-2 border-r border-panel-border pr-2">
+            <button
+              onClick={() => { setSidebarOpen(true); setActiveLeftTab("explorer"); }}
+              className={`p-1.5 rounded-md transition-colors ${activeLeftTab === "explorer" && sidebarOpen ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}
+              title="Explorer"
+            >
+              <FileCode className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setSidebarOpen(true); setActiveLeftTab("git"); }}
+              className={`p-1.5 rounded-md transition-colors ${activeLeftTab === "git" && sidebarOpen ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}
+              title="Source Control"
+            >
+              <Terminal className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setSidebarOpen(true); setActiveLeftTab("github"); }}
+              className={`p-1.5 rounded-md transition-colors ${activeLeftTab === "github" && sidebarOpen ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}
+              title="GitHub"
+            >
+              <Zap className="w-4 h-4" />
+            </button>
+          </div>
+
           {activeTab && (
             <select
               value={language}
@@ -268,16 +317,29 @@ export default function CodeSenseApp() {
         </div>
       </header>
 
-      {/* Main Content: Split Pane */}
-      <main className="flex flex-1 overflow-hidden min-h-0">
-        
-        {/* Sidebar */}
+      {/* Main content area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar */}
         {sidebarOpen && (
-          <FileExplorer 
-            fileTree={workspace.fileTree} 
-            onOpenFile={openFile} 
-            onUploadWorkspace={uploadWorkspace} 
-          />
+          <div className="w-64 border-r border-panel-border bg-[#0d0d0f] flex flex-col shrink-0">
+            {activeLeftTab === "explorer" && (
+              <FileExplorer 
+                fileTree={workspace.fileTree} 
+                onOpenFile={openFile} 
+                onUploadWorkspace={uploadWorkspace} 
+                onCreateFile={createFile}
+                onCreateFolder={createFolder}
+                onRename={renameNode}
+                onDelete={deleteNode}
+              />
+            )}
+            {activeLeftTab === "github" && (
+              <GitHubPane onImportRepository={uploadWorkspace} />
+            )}
+            {activeLeftTab === "git" && (
+              <SourceControlPane fileTree={workspace.fileTree} activeTabId={workspace.activeTabId} />
+            )}
+          </div>
         )}
 
         {/* Center Pane: Editor */}

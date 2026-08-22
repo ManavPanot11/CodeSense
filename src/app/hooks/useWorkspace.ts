@@ -49,21 +49,7 @@ const DEFAULT_STATE: WorkspaceState = {
   activeTabId: "root/index.js"
 };
 
-function getLanguageFromFilename(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase();
-  switch (ext) {
-    case 'js': return 'javascript';
-    case 'ts': return 'typescript';
-    case 'jsx': return 'javascript';
-    case 'tsx': return 'typescript';
-    case 'py': return 'python';
-    case 'json': return 'json';
-    case 'html': return 'html';
-    case 'css': return 'css';
-    case 'md': return 'markdown';
-    default: return 'plaintext';
-  }
-}
+import { getFileTypeInfo } from "../lib/fileTypes";
 
 export function useWorkspace() {
   const [state, setState] = useState<WorkspaceState | null>(null);
@@ -214,6 +200,145 @@ export function useWorkspace() {
   }, [setWorkspaceState]);
 
 
+  const createFile = useCallback((parentId: string | null, name: string) => {
+    setWorkspaceState((prev) => {
+      const typeInfo = getFileTypeInfo(name);
+      const newFile: FileNode = {
+        id: parentId ? `${parentId}/${name}` : name,
+        name,
+        type: "file",
+        content: "",
+        language: typeInfo.language,
+      };
+
+      if (!parentId) {
+        return { ...prev, fileTree: [...prev.fileTree, newFile] };
+      }
+
+      const insertInto = (nodes: FileNode[]): FileNode[] => {
+        return nodes.map(node => {
+          if (node.id === parentId && node.type === "folder") {
+            return { ...node, children: [...(node.children || []), newFile] };
+          }
+          if (node.children) {
+            return { ...node, children: insertInto(node.children) };
+          }
+          return node;
+        });
+      };
+      return { ...prev, fileTree: insertInto(prev.fileTree) };
+    });
+  }, [setWorkspaceState]);
+
+  const createFolder = useCallback((parentId: string | null, name: string) => {
+    setWorkspaceState((prev) => {
+      const newFolder: FileNode = {
+        id: parentId ? `${parentId}/${name}` : name,
+        name,
+        type: "folder",
+        children: [],
+      };
+
+      if (!parentId) {
+        return { ...prev, fileTree: [...prev.fileTree, newFolder] };
+      }
+
+      const insertInto = (nodes: FileNode[]): FileNode[] => {
+        return nodes.map(node => {
+          if (node.id === parentId && node.type === "folder") {
+            return { ...node, children: [...(node.children || []), newFolder] };
+          }
+          if (node.children) {
+            return { ...node, children: insertInto(node.children) };
+          }
+          return node;
+        });
+      };
+      return { ...prev, fileTree: insertInto(prev.fileTree) };
+    });
+  }, [setWorkspaceState]);
+
+  const deleteNode = useCallback((nodeId: string) => {
+    setWorkspaceState((prev) => {
+      const removeFrom = (nodes: FileNode[]): FileNode[] => {
+        return nodes.filter(node => node.id !== nodeId).map(node => {
+          if (node.children) {
+            return { ...node, children: removeFrom(node.children) };
+          }
+          return node;
+        });
+      };
+      
+      const newOpenTabs = prev.openTabs.filter(t => !t.fileId.startsWith(nodeId));
+      let newActiveTabId = prev.activeTabId;
+      if (prev.activeTabId?.startsWith(nodeId)) {
+        newActiveTabId = newOpenTabs.length > 0 ? newOpenTabs[newOpenTabs.length - 1].fileId : null;
+      }
+
+      return { 
+        ...prev, 
+        fileTree: removeFrom(prev.fileTree),
+        openTabs: newOpenTabs,
+        activeTabId: newActiveTabId
+      };
+    });
+  }, [setWorkspaceState]);
+
+  const renameNode = useCallback((nodeId: string, newName: string) => {
+    setWorkspaceState((prev) => {
+      const parentId = nodeId.includes('/') ? nodeId.substring(0, nodeId.lastIndexOf('/')) : null;
+      const newId = parentId ? `${parentId}/${newName}` : newName;
+
+      const renameInTree = (nodes: FileNode[]): FileNode[] => {
+        return nodes.map(node => {
+          if (node.id === nodeId) {
+            const updatedNode = { ...node, id: newId, name: newName };
+            if (updatedNode.type === "file") {
+              const typeInfo = getFileTypeInfo(newName);
+              updatedNode.language = typeInfo.language;
+            } else if (updatedNode.children) {
+              // Technically we'd need to rename all children paths too, but for simplicity of UI:
+              // Rebuilding all child IDs is complex. For a robust app we'd recursively update IDs.
+              const updateChildIds = (children: FileNode[], oldParent: string, newParent: string): FileNode[] => {
+                return children.map(c => {
+                  const cNewId = c.id.replace(oldParent, newParent);
+                  return { ...c, id: cNewId, children: c.children ? updateChildIds(c.children, oldParent, newParent) : undefined };
+                });
+              };
+              updatedNode.children = updateChildIds(updatedNode.children, nodeId, newId);
+            }
+            return updatedNode;
+          }
+          if (node.children) {
+            return { ...node, children: renameInTree(node.children) };
+          }
+          return node;
+        });
+      };
+
+      const newOpenTabs = prev.openTabs.map(t => {
+        if (t.fileId === nodeId) {
+          const typeInfo = getFileTypeInfo(newName);
+          return { ...t, fileId: newId, name: newName, language: typeInfo.language };
+        } else if (t.fileId.startsWith(nodeId + "/")) {
+           return { ...t, fileId: t.fileId.replace(nodeId, newId) };
+        }
+        return t;
+      });
+
+      let newActiveTabId = prev.activeTabId;
+      if (prev.activeTabId === nodeId) newActiveTabId = newId;
+      else if (prev.activeTabId?.startsWith(nodeId + "/")) newActiveTabId = prev.activeTabId.replace(nodeId, newId);
+
+      return { 
+        ...prev, 
+        fileTree: renameInTree(prev.fileTree),
+        openTabs: newOpenTabs,
+        activeTabId: newActiveTabId
+      };
+    });
+  }, [setWorkspaceState]);
+
   return {
     state,
     openFile,
@@ -224,5 +349,9 @@ export function useWorkspace() {
     saveActiveTab,
     setCursorPosition,
     uploadWorkspace,
+    createFile,
+    createFolder,
+    deleteNode,
+    renameNode,
   };
 }
