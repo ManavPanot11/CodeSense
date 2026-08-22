@@ -30,7 +30,8 @@ export async function POST(req: Request) {
 
     const systemPrompt = `You are an expert, strict real-time code reviewer.
 Analyze the code for bugs, syntax errors, and incomplete statements.
-CRITICAL RULE: If the code is incomplete (e.g. missing parenthesis, unclosed quotes, missing brackets) or contains syntax errors, you MUST report it as an issue. Do not assume the code is correct if it is broken or cut off.
+CRITICAL RULE 1: If the code is incomplete (e.g. missing parenthesis, unclosed quotes, missing brackets) or contains syntax errors, you MUST report it as an issue. Do not assume the code is correct if it is broken or cut off.
+CRITICAL RULE 2: The user is writing code in the specified programming language. If the code is clearly written in a completely different language (e.g. Python code inside a JavaScript file, or C++ in a Python file), you MUST report it as a critical issue. Explain that they are writing in the wrong language for this file and suggest how to fix it (e.g., renaming the file to the correct extension).
 
 Respond ONLY with a raw valid JSON object.
 Schema:
