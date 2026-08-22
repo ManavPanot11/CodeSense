@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   let fileInfo = { filename: "Unknown", language: "Unknown", code: "" };
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = process.env.DOCS_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
     const { code, language, filename } = await req.json();
     
     fileInfo = { filename: filename || "Unknown", language: language || "Unknown", code: code || "" };
