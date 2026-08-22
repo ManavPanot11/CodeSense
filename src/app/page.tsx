@@ -520,7 +520,7 @@ export default function CodeSenseApp() {
   const rightTabs = [
     { id: "issues", label: "Issues", icon: Bug },
     { id: "console", label: "Console", icon: Terminal },
-    { id: "docs", label: "Docs", icon: Book },
+    { id: "docs", label: "About", icon: Book },
     { id: "score", label: "Score", icon: BarChart },
   ] as const;
 
@@ -1128,23 +1128,67 @@ export default function CodeSenseApp() {
               </div>
             )}
 
-            {/* ── Docs ─────────────────────────────────────── */}
+            {/* ── About ─────────────────────────────────────── */}
             {activeRightTab === "docs" && (
-              <div className="space-y-3">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">
-                  AI Documentation
-                </h2>
-                {analysisResult?.documentation ? (
-                  <div className={`p-3.5 rounded-lg border ${
-                    isLight ? "bg-white border-gray-200 shadow-xs" : "bg-white/5 border-panel-border"
+              <div className="space-y-4">
+                {analysisResult?.about ? (
+                  <div className={`p-4 rounded-xl border flex flex-col gap-4 ${
+                    isLight ? "bg-white border-gray-200 shadow-xs" : "bg-black/40 border-white/10"
                   }`}>
-                    <pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
-                      {analysisResult.documentation}
-                    </pre>
+                    <div>
+                      <h2 className="text-[10px] font-bold uppercase tracking-widest text-primary mb-1">About This Code</h2>
+                      <p className="text-sm text-gray-300 leading-relaxed">{analysisResult.about.summary}</p>
+                    </div>
+                    
+                    {analysisResult.about.purpose && analysisResult.about.purpose !== "N/A" && analysisResult.about.purpose !== "Unknown" && (
+                      <div>
+                        <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Purpose</h2>
+                        <p className="text-xs text-gray-400 leading-relaxed">{analysisResult.about.purpose}</p>
+                      </div>
+                    )}
+                    
+                    {analysisResult.about.howItWorks && analysisResult.about.howItWorks.length > 0 && (
+                      <div>
+                        <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">How It Works</h2>
+                        <ol className="list-decimal pl-4 space-y-1 text-xs text-gray-400">
+                          {analysisResult.about.howItWorks.map((step: string, i: number) => (
+                            <li key={i}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    
+                    {analysisResult.about.components && analysisResult.about.components.length > 0 && (
+                      <div>
+                        <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Main Components</h2>
+                        <ul className="list-disc pl-4 space-y-1 text-xs text-gray-400">
+                          {analysisResult.about.components.map((comp: string, i: number) => (
+                            <li key={i}>{comp}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {analysisResult.about.input && analysisResult.about.input !== "None" && analysisResult.about.input !== "N/A" && (
+                        <div>
+                          <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Input</h2>
+                          <p className="text-xs text-gray-400">{analysisResult.about.input}</p>
+                        </div>
+                      )}
+                      {analysisResult.about.output && analysisResult.about.output !== "None" && analysisResult.about.output !== "N/A" && (
+                        <div>
+                          <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Output</h2>
+                          <p className="text-xs text-gray-400">{analysisResult.about.output}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <div className="text-gray-400 text-xs py-8 text-center">
-                    Analyze code to automatically generate documentation.
+                  <div className={`text-xs py-8 text-center border border-dashed rounded-lg ${
+                    isLight ? "text-gray-500 border-gray-300 bg-gray-50" : "text-gray-500 border-gray-700/50 bg-black/20"
+                  }`}>
+                    Analyze code to generate intelligent documentation.
                   </div>
                 )}
               </div>
@@ -1152,52 +1196,76 @@ export default function CodeSenseApp() {
 
             {/* ── Score ────────────────────────────────────── */}
             {activeRightTab === "score" && (
-              <div className="space-y-3">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">
-                  Code Quality Score
-                </h2>
-                {analysisResult?.quality_score != null ? (
-                  <div className={`p-4 rounded-lg border flex flex-col sm:flex-row items-center gap-4 ${
-                    isLight ? "bg-white border-gray-200 shadow-xs" : "bg-white/5 border-panel-border"
-                  }`}>
-                    <div className="relative w-18 h-18 flex items-center justify-center shrink-0">
-                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                        <path
-                          className={isLight ? "text-gray-200" : "text-gray-800"}
-                          strokeWidth="3.5"
-                          stroke="currentColor"
-                          fill="none"
-                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        />
-                        <path
-                          className={`${
-                            analysisResult.quality_score >= 80
-                              ? "text-emerald-500"
-                              : analysisResult.quality_score >= 60
-                                ? "text-yellow-500"
-                                : "text-red-500"
-                          }`}
-                          strokeWidth="3.5"
-                          strokeDasharray={`${analysisResult.quality_score}, 100`}
-                          stroke="currentColor"
-                          fill="none"
-                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        />
-                      </svg>
-                      <span className="absolute text-xl font-bold font-mono">
-                        {analysisResult.quality_score}
-                      </span>
+              <div className="space-y-4">
+                {analysisResult?.scores ? (
+                  <>
+                    {/* Overall Score Card */}
+                    <div className={`p-4 rounded-xl border flex items-center justify-between ${
+                      isLight ? "bg-white border-gray-200 shadow-xs" : "bg-black/40 border-white/10"
+                    }`}>
+                      <div>
+                        <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Overall Code Quality</h2>
+                        <p className={`text-sm font-medium ${isLight ? "text-gray-700" : "text-gray-300"}`}>Analysis Complete</p>
+                      </div>
+                      <div className="relative w-14 h-14 flex items-center justify-center shrink-0">
+                        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                          <path className={isLight ? "text-gray-200" : "text-gray-800"} strokeWidth="4" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                          <path className={`${analysisResult.scores.overall >= 80 ? "text-emerald-500" : analysisResult.scores.overall >= 60 ? "text-yellow-500" : "text-red-500"}`} strokeWidth="4" strokeDasharray={`${analysisResult.scores.overall}, 100`} stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <span className="absolute text-sm font-bold font-mono">{analysisResult.scores.overall}</span>
+                      </div>
                     </div>
-                    <div className="flex-1 text-center sm:text-left">
-                      <h3 className="font-bold text-xs uppercase text-gray-400 mb-1">Quality Assessment</h3>
-                      <p className="text-xs text-gray-400 leading-relaxed">
-                        {analysisResult.summary || "Code quality analyzed successfully."}
-                      </p>
+
+                    {/* Score Categories Grid */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {["function", "design", "security", "readability"].map((cat) => {
+                        const data = analysisResult.scores[cat];
+                        if (!data) return null;
+                        return (
+                          <div key={cat} className={`p-3 rounded-xl border flex flex-col justify-between gap-2 ${
+                            isLight ? "bg-white border-gray-200" : "bg-white/5 border-white/10"
+                          }`} title={data.issues?.length ? \`Issues: \${data.issues.map((i:any) => i.description).join(', ')}\` : ''}>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{cat}</span>
+                            <div className="flex justify-between items-end">
+                              <span className={`text-2xl font-black leading-none ${
+                                data.score >= 80 ? "text-emerald-500" : data.score >= 60 ? "text-yellow-500" : "text-red-500"
+                              }`}>{data.score}</span>
+                              <span className="text-[10px] text-gray-500">/ 100</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
+
+                    {/* Areas of Improvement */}
+                    {analysisResult.areasOfImprovement && analysisResult.areasOfImprovement.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 px-1 mb-2">Areas of Improvement</h2>
+                        {analysisResult.areasOfImprovement.map((area: any, idx: number) => (
+                          <div key={idx} className={`p-3 rounded-lg border text-xs ${
+                            isLight ? "bg-white border-gray-200" : "bg-black/40 border-white/10"
+                          }`}>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                area.severity === "CRITICAL" || area.severity === "HIGH" ? "bg-red-500" :
+                                area.severity === "MEDIUM" ? "bg-yellow-500" : "bg-blue-500"
+                              }`}></span>
+                              <strong className={isLight ? "text-gray-900" : "text-white"}>{area.title}</strong>
+                            </div>
+                            <p className="text-gray-500 pl-4">{area.description}</p>
+                            {area.location && (
+                              <p className="text-gray-600 pl-4 mt-1.5 font-mono text-[10px]">📍 {area.location}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 ) : (
-                  <div className="text-gray-400 text-xs py-8 text-center">
-                    Analyze code to compute quality metric score.
+                  <div className={`text-xs py-8 text-center border border-dashed rounded-lg ${
+                    isLight ? "text-gray-500 border-gray-300 bg-gray-50" : "text-gray-500 border-gray-700/50 bg-black/20"
+                  }`}>
+                    Analyze code to compute detailed multi-dimensional score.
                   </div>
                 )}
               </div>

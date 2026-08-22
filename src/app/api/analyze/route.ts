@@ -41,13 +41,35 @@ export async function POST(req: Request) {
     const truncatedCode = code.slice(0, 15000);
 
     const systemPrompt = `You are an expert, strict real-time code reviewer.
-Analyze the code for bugs, syntax errors, and incomplete statements.
-CRITICAL RULE 1: If the code is incomplete (e.g. missing parenthesis, unclosed quotes, missing brackets) or contains syntax errors, you MUST report it as an issue. Do not assume the code is correct if it is broken or cut off.
-CRITICAL RULE 2: The user is writing code in the specified programming language. If the code is clearly written in a completely different language (e.g. Python code inside a JavaScript file, or C++ in a Python file), you MUST report it as a critical issue. Explain that they are writing in the wrong language for this file and suggest how to fix it (e.g., renaming the file to the correct extension).
+Analyze the code for bugs, design, security, and readability.
+CRITICAL RULE 1: If the code is incomplete (e.g. missing parenthesis, unclosed quotes, missing brackets) or contains syntax errors, you MUST report it as an issue.
+CRITICAL RULE 2: The user is writing code in ${language || "the specified language"}. Apply language-specific rules. If the code is clearly written in a completely different language, report it as a critical issue.
+CRITICAL RULE 3: Do NOT invent security vulnerabilities. Only report an issue if there is actual evidence in the code.
+CRITICAL RULE 4: Do not penalize simple code for lacking complex design patterns.
 
 Respond ONLY with a raw valid JSON object.
 Schema:
 {
+  "scores": {
+    "overall": number (0-100),
+    "function": { "score": number, "strengths": ["..."], "issues": ["..."], "suggestions": ["..."] },
+    "design": { "score": number, "strengths": ["..."], "issues": ["..."], "suggestions": ["..."] },
+    "security": { "score": number, "issues": [{"severity": "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"|"INFO", "description": "...", "location": "...", "recommendation": "..."}] },
+    "readability": { "score": number, "strengths": ["..."], "improvements": ["..."] }
+  },
+  "areasOfImprovement": [
+    { "severity": "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"|"INFO", "title": "...", "description": "...", "location": "..." }
+  ],
+  "about": {
+    "summary": "1 sentence description",
+    "purpose": "...",
+    "howItWorks": ["..."],
+    "components": ["..."],
+    "input": "...",
+    "output": "...",
+    "dependencies": ["..."],
+    "keyLogic": "..."
+  },
   "issues": [
     {
       "severity": "critical" | "warning" | "info",
@@ -57,10 +79,7 @@ Schema:
       "description": "Short explanation",
       "suggestedFix": "EXACT raw code snippet to replace the lines. ONLY the pure corrected code. DO NOT use diff format (+/-). DO NOT repeat the original wrong code. NO conversational text."
     }
-  ],
-  "documentation": "1-2 sentence description",
-  "quality_score": number (0-100),
-  "summary": "1 sentence quality summary"
+  ]
 }
 Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
 
@@ -72,7 +91,7 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
     for (const modelToUse of FAST_MODELS) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s per model attempt
+        const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s per model attempt for deep analysis
 
         const res = await fetch(OPENROUTER_URL, {
           method: "POST",
@@ -86,7 +105,7 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
             model: modelToUse,
             stream: false,
             temperature: 0.1,
-            max_tokens: 1500, // Restored for deep real-time logic analysis
+            max_tokens: 2500, // Increased for full analysis
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt },
@@ -113,10 +132,25 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
 
         const parsed = JSON.parse(jsonString);
         responseData = {
+          scores: parsed.scores || {
+            overall: 100,
+            function: { score: 100, strengths: [], issues: [], suggestions: [] },
+            design: { score: 100, strengths: [], issues: [], suggestions: [] },
+            security: { score: 100, issues: [] },
+            readability: { score: 100, strengths: [], improvements: [] }
+          },
+          areasOfImprovement: parsed.areasOfImprovement || [],
+          about: parsed.about || {
+            summary: "Analysis complete.",
+            purpose: "Unknown",
+            howItWorks: [],
+            components: [],
+            input: "None",
+            output: "None",
+            dependencies: [],
+            keyLogic: "None"
+          },
           issues: Array.isArray(parsed.issues) ? parsed.issues : [],
-          documentation: parsed.documentation || "Analysis generated.",
-          quality_score: typeof parsed.quality_score === "number" ? parsed.quality_score : 90,
-          summary: parsed.summary || "Code analyzed successfully.",
         };
         break;
       } catch (err: any) {
@@ -131,10 +165,25 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
     // Fallback response with clean default so user is never locked out
     return Response.json(
       {
+        scores: {
+          overall: 100,
+          function: { score: 100, strengths: [], issues: [], suggestions: [] },
+          design: { score: 100, strengths: [], issues: [], suggestions: [] },
+          security: { score: 100, issues: [] },
+          readability: { score: 100, strengths: [], improvements: [] }
+        },
+        areasOfImprovement: [],
+        about: {
+          summary: "Code syntax is valid. AI analyzer is currently operating at capacity.",
+          purpose: "N/A",
+          howItWorks: [],
+          components: [],
+          input: "N/A",
+          output: "N/A",
+          dependencies: [],
+          keyLogic: "N/A"
+        },
         issues: [],
-        documentation: "Code syntax is valid. AI analyzer is currently operating at capacity.",
-        quality_score: 90,
-        summary: "Analysis complete.",
       },
       { status: 200 }
     );
