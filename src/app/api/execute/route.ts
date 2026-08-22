@@ -36,91 +36,80 @@ function findPython(): string | null {
 }
 
 /**
- * Execute code via OpenRouter LLM as a code interpreter fallback.
- * Asks the model to act as a language runtime and return exact stdout/stderr.
+ * Execute code via Piston API as a code execution backend.
+ * This runs code natively in isolated containers without using AI tokens.
  */
-async function executeViaLLM(
+async function executeViaPiston(
   code: string,
   language: string,
   stdin: string,
   files: { name: string, content: string }[] = []
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    return {
-      stdout: "",
-      stderr:
-        `Local runtime for ${language} is not available and no OPENROUTER_API_KEY is set.\n\n` +
-        "To run this code, add an OPENROUTER_API_KEY to .env.local to enable cloud execution.",
-      exitCode: 1,
-    };
-  }
+  // Map our language names to Piston's language names
+  const langMap: Record<string, string> = {
+    python: "python",
+    javascript: "javascript",
+    typescript: "typescript",
+    cpp: "c++",
+    c: "c",
+    java: "java",
+    csharp: "csharp",
+    go: "go",
+    rust: "rust",
+    php: "php",
+    ruby: "ruby",
+    swift: "swift",
+    kotlin: "kotlin",
+    sql: "sqlite3",
+  };
 
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
+  const pistonLang = langMap[language.toLowerCase()] || language;
+
+  const pistonFiles = [
     {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "CodeSense",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `You are a strict code execution engine for ${language}. Execute the given ${language} code EXACTLY as a real compiler/interpreter would. Return ONLY a JSON object with these fields:
-- "stdout": the exact standard output (string)
-- "stderr": the exact standard error output (string, empty if no errors)
-- "exitCode": 0 for success, 1 for errors (number)
-
-Rules:
-- Execute the code faithfully. Do NOT explain the code.
-- Capture ALL print output in stdout, preserving newlines.
-- If there are runtime or compilation errors, put the trace in stderr.
-- Return ONLY raw JSON, no markdown fences, no extra text.
-- If standard input is provided, pass it to the program.`,
-          },
-          {
-            role: "user",
-            content: `Execute this code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nStandard Input (stdin):\n${stdin}`,
-          },
-        ],
-        temperature: 0,
-        max_tokens: 250, // Lowered aggressively to avoid OpenRouter 402 errors
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const errText = await response.text();
-    return {
-      stdout: "",
-      stderr: `OpenRouter API error (${response.status}): ${errText}`,
-      exitCode: 1,
-    };
-  }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content?.trim() || "";
+      name: "main",
+      content: code
+    },
+    ...files.map(f => ({ name: f.name, content: f.content }))
+  ];
 
   try {
-    // Strip markdown fences if present
-    const cleaned = content
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```\s*$/, "")
-      .trim();
-    const parsed = JSON.parse(cleaned);
+    const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        language: pistonLang,
+        version: "*",
+        files: pistonFiles,
+        stdin: stdin,
+        compile_timeout: 10000,
+        run_timeout: 10000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return {
+        stdout: "",
+        stderr: `Piston API error (${response.status}): ${errText}`,
+        exitCode: 1,
+      };
+    }
+
+    const data = await response.json();
     return {
-      stdout: parsed.stdout ?? "",
-      stderr: parsed.stderr ?? "",
-      exitCode: typeof parsed.exitCode === "number" ? parsed.exitCode : 0,
+      stdout: data.run?.stdout || "",
+      stderr: data.compile?.stderr || data.run?.stderr || "",
+      exitCode: data.run?.code ?? (data.compile?.code ?? 1),
     };
-  } catch {
-    // If the model didn't return valid JSON, treat the whole response as stdout
-    return { stdout: content, stderr: "", exitCode: 0 };
+  } catch (err: any) {
+    return {
+      stdout: "",
+      stderr: `Failed to connect to Piston execution engine: ${err.message}`,
+      exitCode: 1,
+    };
   }
 }
 
@@ -162,8 +151,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Use LLM fallback for everything else (or if local Python isn't found)
-    const result = await executeViaLLM(code, language, stdin, files);
+    // Use Piston natively for everything else (or if local Python isn't found)
+    const result = await executeViaPiston(code, language, stdin, files);
     return NextResponse.json(
       { ...result, cloud: true },
       { status: 200 }
