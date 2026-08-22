@@ -79,7 +79,7 @@ CRITICAL RULES:
     console.error("Error generating README:", error);
     // Silent fallback
     return NextResponse.json({
-      readme: `File: ${filename || "Unknown"}\n\nREADME generation failed due to an error.\nThe file is included in the ZIP so you can inspect it manually.`
+      readme: `README generation failed due to an error.\nThe file is included in the ZIP so you can inspect it manually.`
     });
   }
 }
