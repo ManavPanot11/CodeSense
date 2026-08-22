@@ -446,9 +446,16 @@ export default function CodeSenseApp() {
   const handleApplyFix = (issue: any) => {
     if (!issue.suggestedFix) return;
     const lines = code.split("\n");
-    const startIdx = Math.max(0, (issue.startLine || 1) - 1);
-    const endIdx = Math.min(lines.length, issue.endLine || lines.length);
-    lines.splice(startIdx, endIdx - startIdx, issue.suggestedFix);
+    
+    const startLine = issue.startLine || 1;
+    const endLine = (issue.endLine && issue.endLine >= startLine) ? issue.endLine : startLine;
+    
+    const startIdx = Math.max(0, startLine - 1);
+    const endIdx = Math.min(lines.length, endLine);
+    
+    const fixLines = issue.suggestedFix.split("\n");
+    lines.splice(startIdx, Math.max(1, endIdx - startIdx), ...fixLines);
+    
     updateActiveTabContent(lines.join("\n"));
   };
 
