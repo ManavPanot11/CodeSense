@@ -239,6 +239,7 @@ export default function CodeSenseApp() {
           </div>
         </div>
 
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Left Panel Toggles */}
           <div className="flex items-center gap-1 sm:gap-2 mr-2 border-r border-panel-border pr-2">
             <button
@@ -691,7 +692,7 @@ export default function CodeSenseApp() {
             )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

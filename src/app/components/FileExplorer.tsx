@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { Folder, ChevronRight, ChevronDown, Upload, FilePlus, FolderPlus, Edit2, Trash2, Download } from "lucide-react";
 import { FileNode } from "../hooks/useWorkspace";
-import { getFileTypeInfo } from "../lib/fileTypes";
+import { getFileTypeInfo } from "@/lib/fileTypes";
 
 interface FileExplorerProps {
   fileTree: FileNode[];
@@ -19,7 +19,15 @@ interface ContextMenuState {
   node: FileNode | null; // null means clicked on root area
 }
 
-export default function FileExplorer({ fileTree, onOpenFile, onUploadWorkspace }: FileExplorerProps) {
+export default function FileExplorer({ 
+  fileTree, 
+  onOpenFile, 
+  onUploadWorkspace,
+  onCreateFile,
+  onCreateFolder,
+  onRename,
+  onDelete
+}: FileExplorerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleUploadClick = () => {

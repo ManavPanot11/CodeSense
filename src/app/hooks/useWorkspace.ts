@@ -49,7 +49,7 @@ const DEFAULT_STATE: WorkspaceState = {
   activeTabId: "root/index.js"
 };
 
-import { getFileTypeInfo } from "../lib/fileTypes";
+import { getFileTypeInfo } from "@/lib/fileTypes";
 
 export function useWorkspace() {
   const [state, setState] = useState<WorkspaceState | null>(null);

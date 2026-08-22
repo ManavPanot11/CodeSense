@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
-import { Github, LogIn, LogOut, Download, Loader2, Folder, Search } from "lucide-react";
+import { GitBranch, LogIn, LogOut, Download, Loader2, Folder, Search } from "lucide-react";
 import { Octokit } from "@octokit/rest";
 import { FileNode } from "../hooks/useWorkspace";
-import { getFileTypeInfo } from "../lib/fileTypes";
+import { getFileTypeInfo } from "@/lib/fileTypes";
 
 interface GitHubPaneProps {
   onImportRepository: (tree: FileNode[]) => void;
 }
 
 export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
-  const { data: session, status } = useSession();
+  const { data: sessionData, status } = useSession();
+  const session = sessionData as any;
   const [repos, setRepos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [importingRepo, setImportingRepo] = useState<string | null>(null);
@@ -141,7 +142,7 @@ export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
   if (!session) {
     return (
       <div className="p-6 flex flex-col items-center justify-center text-center">
-        <Github className="w-12 h-12 text-gray-400 mb-4" />
+        <GitBranch className="w-12 h-12 text-gray-400 mb-4" />
         <h3 className="text-lg font-semibold text-gray-200 mb-2">Connect to GitHub</h3>
         <p className="text-sm text-gray-400 mb-6">
           Log in to view your repositories, import projects, and push changes directly from CodeSense.
@@ -166,7 +167,7 @@ export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
             {session.user?.image ? (
               <img src={session.user.image} alt="" className="w-6 h-6 rounded-full" />
             ) : (
-              <Github className="w-5 h-5 text-gray-300" />
+              <GitBranch className="w-5 h-5 text-gray-300" />
             )}
             <span className="text-sm font-medium text-gray-200">{session.user?.name || session.user?.email}</span>
           </div>
