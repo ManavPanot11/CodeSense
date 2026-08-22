@@ -126,7 +126,7 @@ export default function CodeSenseApp() {
     abortRef.current = controller;
 
     const reqId = ++currentReqIdRef.current;
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased to 30s for long codes
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     setIsAnalyzing(true);
     if (isManual) {
