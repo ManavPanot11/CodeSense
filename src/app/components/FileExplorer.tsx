@@ -13,6 +13,8 @@ interface FileExplorerProps {
   onRename: (nodeId: string, newName: string) => void;
   onDelete: (nodeId: string) => void;
   onDownloadZip?: (selectedIds: Set<string>) => void;
+  selectedIds: Set<string>;
+  setSelectedIds: (ids: Set<string>) => void;
   theme?: "dark" | "light";
 }
 
@@ -32,12 +34,12 @@ export default function FileExplorer({
   onRename,
   onDelete,
   onDownloadZip,
+  selectedIds,
+  setSelectedIds,
   theme = "dark"
 }: FileExplorerProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const handleNodeSelect = (e: React.MouseEvent, node: FileNode) => {
     e.stopPropagation();
@@ -406,10 +408,11 @@ function FileTreeNode({
   const isSelected = selectedIds.has(node.id);
 
   const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
     if (isDir) {
+      e.stopPropagation();
       setIsOpen(!isOpen);
     } else {
+      e.stopPropagation();
       onNodeSelect(e, node);
       // Only open the file in the editor if it's a simple click (not ctrl/cmd multi-select)
       if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {

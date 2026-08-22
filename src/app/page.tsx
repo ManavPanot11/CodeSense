@@ -58,6 +58,14 @@ export default function CodeSenseApp() {
   const [isZipping, setIsZipping] = useState(false);
   const [zipStatus, setZipStatus] = useState("");
 
+  // Selected Files State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Delete Modal State
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [filesToDelete, setFilesToDelete] = useState<any[]>([]);
+  const [deleteSuccessMsg, setDeleteSuccessMsg] = useState("");
+
   // Theme State with localStorage persistence
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
@@ -318,6 +326,11 @@ export default function CodeSenseApp() {
   // ── Keyboard Shortcuts ────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.closest('.monaco-editor')) {
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
         saveActiveTab();
@@ -326,10 +339,41 @@ export default function CodeSenseApp() {
         e.preventDefault();
         executeCode();
       }
+      if (e.key === "Delete") {
+        if (selectedIds.size > 0 && !isDeleting) {
+          e.preventDefault();
+          const nodes: any[] = [];
+          const findNodes = (list: any[]) => {
+            for (const n of list) {
+              if (selectedIds.has(n.id)) nodes.push(n);
+              if (n.children) findNodes(n.children);
+            }
+          };
+          findNodes(workspace?.fileTree || []);
+          if (nodes.length > 0) {
+            setFilesToDelete(nodes);
+            setIsDeleting(true);
+          }
+        }
+      }
+      if (e.key === "Escape" && isDeleting) {
+        setIsDeleting(false);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [saveActiveTab, executeCode]);
+  }, [saveActiveTab, executeCode, selectedIds, isDeleting, workspace]);
+
+  const confirmDelete = () => {
+    filesToDelete.forEach(node => {
+      deleteNode(node.id);
+    });
+    setDeleteSuccessMsg(`${filesToDelete.length} item${filesToDelete.length !== 1 ? 's' : ''} deleted successfully.`);
+    setTimeout(() => setDeleteSuccessMsg(""), 3000);
+    setSelectedIds(new Set());
+    setIsDeleting(false);
+    setFilesToDelete([]);
+  };
 
   // ── Apply fix ─────────────────────────────────────────────────────
   const handleApplyFix = (issue: any) => {
@@ -589,6 +633,8 @@ export default function CodeSenseApp() {
                 onRename={renameNode}
                 onDelete={deleteNode}
                 onDownloadZip={handleDownloadZip}
+                selectedIds={selectedIds}
+                setSelectedIds={setSelectedIds}
                 theme={theme}
               />
             )}
@@ -976,6 +1022,80 @@ export default function CodeSenseApp() {
         </div>
       )}
 
+      {/* Delete Success Toast */}
+      {deleteSuccessMsg && (
+        <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center z-50 text-sm font-medium animate-in fade-in slide-in-from-bottom-5">
+          <Check className="w-4 h-4 mr-2" />
+          {deleteSuccessMsg}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleting && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div 
+            className={`w-full max-w-md rounded-xl shadow-2xl overflow-hidden flex flex-col ${
+              isLight ? "bg-white border border-gray-200" : "bg-[#1e1e1e] border border-panel-border"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`px-5 py-4 border-b flex items-center justify-between ${
+              isLight ? "border-gray-200" : "border-panel-border"
+            }`}>
+              <h3 className={`font-semibold text-base ${isLight ? "text-gray-900" : "text-white"}`}>
+                Delete {filesToDelete.length === 1 ? 'File' : 'Files'}?
+              </h3>
+            </div>
+            
+            <div className={`p-5 text-sm ${isLight ? "text-gray-600" : "text-gray-300"}`}>
+              {filesToDelete.length === 1 ? (
+                <p>Are you sure you want to delete <strong>{filesToDelete[0].name}</strong>?</p>
+              ) : (
+                <p>Are you sure you want to delete these <strong>{filesToDelete.length} files</strong>?</p>
+              )}
+              
+              <div className={`mt-4 mb-4 max-h-32 overflow-y-auto border rounded-md p-2 ${
+                isLight ? "bg-gray-50 border-gray-200" : "bg-[#0d0d0f] border-panel-border"
+              }`}>
+                <ul className="list-disc list-inside space-y-1">
+                  {filesToDelete.map(f => (
+                    <li key={f.id} className="truncate">
+                      {f.id}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {filesToDelete.some(f => f.type === 'folder') && (
+                <p className="text-amber-500 text-xs font-medium mt-2 bg-amber-500/10 p-2 rounded-md border border-amber-500/20">
+                  Warning: The selected folder(s) and all of their contents will be permanently removed.
+                </p>
+              )}
+              
+              <p className="mt-4 text-xs font-medium">This action cannot be undone.</p>
+            </div>
+            
+            <div className={`px-5 py-4 border-t flex justify-end gap-3 ${
+              isLight ? "bg-gray-50 border-gray-200" : "bg-[#0d0d0f] border-panel-border"
+            }`}>
+              <button
+                onClick={() => setIsDeleting(false)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  isLight ? "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50" : "bg-white/5 border border-panel-border text-gray-300 hover:bg-white/10"
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
