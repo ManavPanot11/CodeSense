@@ -1,3 +1,5 @@
+export const maxDuration = 60; // Allow function to run longer on Vercel for long code analysis
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 // Ultra-fast model sequence for instant code analysis
@@ -60,7 +62,7 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
     for (const modelToUse of FAST_MODELS) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s per model attempt
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s per model attempt for long codes
 
         const res = await fetch(OPENROUTER_URL, {
           method: "POST",
