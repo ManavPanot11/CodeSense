@@ -2,8 +2,8 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 // Ultra-fast model sequence for instant code analysis
 const FAST_MODELS = [
-  "google/gemini-2.5-flash",
   "openai/gpt-4o-mini",
+  "google/gemini-2.5-flash",
   "deepseek/deepseek-chat"
 ];
 
@@ -28,8 +28,11 @@ export async function POST(req: Request) {
 
     const truncatedCode = code.slice(0, 15000);
 
-    const systemPrompt = `You are an expert real-time code reviewer.
-Analyze the code and respond ONLY with a raw valid JSON object.
+    const systemPrompt = `You are an expert, strict real-time code reviewer.
+Analyze the code for bugs, syntax errors, and incomplete statements.
+CRITICAL RULE: If the code is incomplete (e.g. missing parenthesis, unclosed quotes, missing brackets) or contains syntax errors, you MUST report it as an issue. Do not assume the code is correct if it is broken or cut off.
+
+Respond ONLY with a raw valid JSON object.
 Schema:
 {
   "issues": [
@@ -46,7 +49,7 @@ Schema:
   "quality_score": number (0-100),
   "summary": "1 sentence quality summary"
 }
-Output strictly valid JSON with no markdown formatting.`;
+Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
 
     const userPrompt = `Analyze this ${language || "code"}:\n\n${truncatedCode}`;
 
