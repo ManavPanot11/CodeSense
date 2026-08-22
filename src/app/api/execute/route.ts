@@ -81,12 +81,11 @@ Rules:
 - Capture ALL print output in stdout, preserving newlines.
 - If there are runtime or compilation errors, put the trace in stderr.
 - Return ONLY raw JSON, no markdown fences, no extra text.
-- If standard input is provided, pass it to the program.
-- You have access to other files in the workspace. Read them if the code requires them.`,
+- If standard input is provided, pass it to the program.`,
           },
           {
             role: "user",
-            content: `Execute this code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nStandard Input (stdin):\n${stdin}\n\nWorkspace Files:\n${files.map(f => `--- ${f.name} ---\n${f.content}\n`).join("\n")}`,
+            content: `Execute this code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nStandard Input (stdin):\n${stdin}`,
           },
         ],
         temperature: 0,
