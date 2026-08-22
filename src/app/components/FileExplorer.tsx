@@ -43,11 +43,6 @@ export default function FileExplorer({
 
   const handleNodeSelect = (e: React.MouseEvent, node: FileNode) => {
     e.stopPropagation();
-    if (node.type === "folder") {
-      // Folders are not selectable for ZIP download in this implementation
-      setSelectedIds(new Set());
-      return;
-    }
 
     if (e.ctrlKey || e.metaKey) {
       const newSet = new Set(selectedIds);
@@ -411,6 +406,7 @@ function FileTreeNode({
     if (isDir) {
       e.stopPropagation();
       setIsOpen(!isOpen);
+      onNodeSelect(e, node);
     } else {
       e.stopPropagation();
       onNodeSelect(e, node);
