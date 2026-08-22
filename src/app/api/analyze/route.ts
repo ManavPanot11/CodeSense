@@ -43,7 +43,7 @@ Schema:
       "startLine": number,
       "endLine": number,
       "description": "Short explanation",
-      "suggestedFix": "Code snippet or text fix (optional)"
+      "suggestedFix": "EXACT raw code snippet to replace the lines. NO conversational text like 'Change to:' or 'Add this:'. ONLY the raw code."
     }
   ],
   "documentation": "1-2 sentence description",
