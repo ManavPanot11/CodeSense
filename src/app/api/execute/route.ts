@@ -3,6 +3,7 @@ import { execFile, execSync } from "child_process";
 import { writeFileSync, unlinkSync, mkdtempSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { GoogleGenAI } from "@google/genai";
 
 const MAX_OUTPUT = 50_000; // 50 KB max output
 const TIMEOUT_MS = 10_000; // 10 seconds
@@ -45,33 +46,20 @@ async function executeViaLLM(
   stdin: string,
   files: { name: string, content: string }[] = []
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return {
       stdout: "",
       stderr:
-        `Local runtime for ${language} is not available and no OPENROUTER_API_KEY is set.\n\n` +
-        "To run this code, add an OPENROUTER_API_KEY to .env.local to enable cloud execution.",
+        `Local runtime for ${language} is not available and no API Key is set.\n\n` +
+        "To run this code, add a GEMINI_API_KEY to .env.local to enable cloud execution.",
       exitCode: 1,
     };
   }
 
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "CodeSense",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `You are a strict code execution engine for ${language}. Execute the given ${language} code EXACTLY as a real compiler/interpreter would. Return ONLY a JSON object with these fields:
+  const ai = new GoogleGenAI({ apiKey });
+
+  const systemPrompt = `You are a strict code execution engine for ${language}. Execute the given ${language} code EXACTLY as a real compiler/interpreter would. Return ONLY a JSON object with these fields:
 - "stdout": the exact standard output (string)
 - "stderr": the exact standard error output (string, empty if no errors)
 - "exitCode": 0 for success, 1 for errors (number)
@@ -82,30 +70,30 @@ Rules:
 - If there are runtime or compilation errors, put the trace in stderr.
 - Return ONLY raw JSON, no markdown fences, no extra text.
 - If standard input is provided, pass it to the program.
-- You have access to other files in the workspace. Read them if the code requires them.`,
-          },
-          {
-            role: "user",
-            content: `Execute this code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nStandard Input (stdin):\n${stdin}\n\nWorkspace Files:\n${files.map(f => `--- ${f.name} ---\n${f.content}\n`).join("\n")}`,
-          },
-        ],
-        temperature: 0,
-        max_tokens: 1000, // Reduced to avoid OpenRouter limits
-      }),
-    }
-  );
+- You have access to other files in the workspace. Read them if the code requires them.`;
 
-  if (!response.ok) {
-    const errText = await response.text();
+  const userPrompt = `Execute this code:\n\`\`\`${language}\n${code}\n\`\`\`\n\nStandard Input (stdin):\n${stdin}\n\nWorkspace Files:\n${files.map(f => `--- ${f.name} ---\n${f.content}\n`).join("\n")}`;
+
+  let content = "";
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        { role: "user", parts: [{ text: userPrompt }] }
+      ],
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.1,
+      }
+    });
+    content = response.text || "";
+  } catch (err: any) {
     return {
       stdout: "",
-      stderr: `OpenRouter API error (${response.status}): ${errText}`,
+      stderr: `AI Execution error: ${err.message}`,
       exitCode: 1,
     };
   }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content?.trim() || "";
 
   try {
     // Strip markdown fences if present

@@ -1,11 +1,4 @@
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-
-// Ultra-fast model sequence for instant code analysis
-const FAST_MODELS = [
-  "openai/gpt-4o-mini",
-  "google/gemini-2.5-flash",
-  "deepseek/deepseek-chat"
-];
+import { GoogleGenAI } from "@google/genai";
 
 const MOCK_RESPONSE = {
   issues: [],
@@ -16,7 +9,7 @@ const MOCK_RESPONSE = {
 
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY;
     const { code, language } = await req.json();
 
     if (!code || !code.trim()) {
@@ -33,10 +26,12 @@ export async function POST(req: Request) {
         summary: "Analysis skipped for non-programming format."
       }, { status: 200 });
     }
-
+    
     if (!apiKey) {
       return Response.json(MOCK_RESPONSE, { status: 200 });
     }
+
+    const ai = new GoogleGenAI({ apiKey });
 
     const truncatedCode = code.slice(0, 15000);
 
@@ -69,59 +64,34 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
     let responseData = null;
     let lastError = null;
 
-    for (const modelToUse of FAST_MODELS) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s per model attempt
-
-        const res = await fetch(OPENROUTER_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://codesense.vercel.app",
-            "X-Title": "CodeSense",
-          },
-          body: JSON.stringify({
-            model: modelToUse,
-            stream: false,
-            temperature: 0.1,
-            max_tokens: 800,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt },
-            ],
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) {
-          const errText = await res.text();
-          lastError = `Model ${modelToUse} failed (${res.status}): ${errText}`;
-          continue;
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          { role: "user", parts: [{ text: userPrompt }] }
+        ],
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.1,
         }
-
-        const data = await res.json();
-        const content = data.choices?.[0]?.message?.content?.trim() || "";
-
-        let jsonString = content;
-        const match = content.match(/\{[\s\S]*\}/);
-        if (match) {
-          jsonString = match[0];
-        }
-
-        const parsed = JSON.parse(jsonString);
-        responseData = {
-          issues: Array.isArray(parsed.issues) ? parsed.issues : [],
-          documentation: parsed.documentation || "Analysis generated.",
-          quality_score: typeof parsed.quality_score === "number" ? parsed.quality_score : 90,
-          summary: parsed.summary || "Code analyzed successfully.",
-        };
-        break;
-      } catch (err: any) {
-        lastError = err.message;
+      });
+      
+      const content = response.text || "";
+      let jsonString = content;
+      const match = content.match(/\{[\s\S]*\}/);
+      if (match) {
+        jsonString = match[0];
       }
+
+      const parsed = JSON.parse(jsonString);
+      responseData = {
+        issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+        documentation: parsed.documentation || "Analysis generated.",
+        quality_score: typeof parsed.quality_score === "number" ? parsed.quality_score : 90,
+        summary: parsed.summary || "Code analyzed successfully.",
+      };
+    } catch (err: any) {
+      lastError = err.message;
     }
 
     if (responseData) {
