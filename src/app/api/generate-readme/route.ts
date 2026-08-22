@@ -18,33 +18,17 @@ export async function POST(req: Request) {
 
     const truncatedCode = code.slice(0, 15000); // Prevent massive payloads
 
-    const systemPrompt = `You are a technical documentation assistant.
-Your job is to read the provided source code file and generate a concise, useful README text describing what it actually does.
+    const systemPrompt = `You are a Senior Staff Software Engineer generating professional documentation and code annotations.
+Your job is to read the provided source code file and return a highly detailed, professional README AND an annotated version of the code.
 
-Format your response EXACTLY like this example, but adapted to the ACTUAL CONTENT of the code:
+The annotated code must contain injected comments explaining complex logic, architectural decisions, and how different parts are used. You MUST use the correct comment syntax for the specific programming language (e.g. \`//\` or \`/* */\` for JS/TS/C++, \`#\` for Python/Ruby, \`<!-- -->\` for HTML).
 
-File: [filename]
-Language: [language]
-
-Purpose:
-[A short paragraph explaining the main purpose of the file]
-
-What the code does:
-- [bullet point 1]
-- [bullet point 2]
-- [bullet point 3]
-
-Important functions/classes:
-- [function 1]
-- [class 1]
-
-Notes:
-- [Any important notes, dependencies, or interesting observations]
-
-CRITICAL RULES:
-- Base the description ONLY on the provided code.
-- Be concise.
-- Output ONLY the plain text format above, without any markdown formatting blocks like \`\`\`. Do not write conversational filler.`;
+Respond ONLY with a raw, valid JSON object containing exactly two keys:
+{
+  "readme": "Highly detailed, professional markdown documentation containing: Overview, Architecture, Functions/Classes deep dive, Dependencies, and Usage Context.",
+  "annotatedCode": "The original code but with your detailed explanatory comments injected throughout."
+}
+Output strictly valid JSON with no markdown formatting blocks (no \`\`\`json fences).`;
 
     const userPrompt = `File: ${filename}\nLanguage: ${language || "Unknown"}\n\nCode:\n${truncatedCode}`;
 
@@ -62,8 +46,8 @@ CRITICAL RULES:
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        temperature: 0.1,
-        max_tokens: 500
+        temperature: 0.2,
+        max_tokens: 8000
       })
     });
 
@@ -72,14 +56,24 @@ CRITICAL RULES:
     }
 
     const data = await response.json();
-    const readmeContent = data.choices[0]?.message?.content?.trim() || "";
+    let result;
+    try {
+      result = JSON.parse(data.choices[0]?.message?.content?.trim() || "{}");
+    } catch (e) {
+      // If parsing fails, just return what we have as readme
+      result = { readme: data.choices[0]?.message?.content?.trim() || "", annotatedCode: code };
+    }
 
-    return NextResponse.json({ readme: readmeContent });
+    return NextResponse.json({ 
+      readme: result.readme || "No detailed documentation generated.",
+      annotatedCode: result.annotatedCode || code
+    });
   } catch (error) {
     console.error("Error generating README:", error);
     // Silent fallback
     return NextResponse.json({
-      readme: `README generation failed due to an error.\nThe file is included in the ZIP so you can inspect it manually.`
+      readme: `README generation failed due to an error.\nThe file is included in the ZIP so you can inspect it manually.`,
+      annotatedCode: null
     });
   }
 }

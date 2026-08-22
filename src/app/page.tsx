@@ -253,9 +253,13 @@ export default function CodeSenseApp() {
           });
           
           let readme = "";
+          let annotatedCode = file.content || "";
           if (res.ok) {
             const data = await res.json();
             readme = data.readme || "";
+            if (data.annotatedCode) {
+              annotatedCode = data.annotatedCode;
+            }
           } else {
             readme = `README generation failed.\nThe file is included for manual inspection.`;
           }
@@ -263,11 +267,11 @@ export default function CodeSenseApp() {
           completed++;
           setZipStatus(`Generating file descriptions (${completed}/${selectedFiles.length})...`);
           
-          return { file, readme };
+          return { file, readme, annotatedCode };
         } catch (e) {
           completed++;
           setZipStatus(`Generating file descriptions (${completed}/${selectedFiles.length})...`);
-          return { file, readme: `README generation failed.\nThe file is included for manual inspection.` };
+          return { file, readme: `README generation failed.\nThe file is included for manual inspection.`, annotatedCode: file.content || "" };
         }
       });
 
@@ -276,12 +280,12 @@ export default function CodeSenseApp() {
       setZipStatus("Creating ZIP...");
 
       for (const result of results) {
-        const { file, readme } = result;
+        const { file, readme, annotatedCode } = result;
         // Strip the "root/" prefix to get a clean relative path
         const relativePath = file.id.startsWith("root/") ? file.id.substring(5) : file.id;
         
-        // Add source file
-        zip.file(relativePath, file.content || "");
+        // Add source file with annotations
+        zip.file(relativePath, annotatedCode);
 
         // Add readme file next to it
         const dirPath = relativePath.substring(0, relativePath.lastIndexOf("/") + 1);
