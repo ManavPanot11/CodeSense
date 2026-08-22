@@ -2,14 +2,16 @@ import React, { useState } from "react";
 import { GitCommit, UploadCloud, FileCode, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { FileNode } from "../hooks/useWorkspace";
 import { useSession } from "next-auth/react";
+import { Octokit } from "@octokit/rest";
 
 interface SourceControlPaneProps {
   fileTree: FileNode[];
   activeTabId: string | null;
+  activeGitRepo?: { owner: string; repo: string; branch: string };
   theme?: "dark" | "light";
 }
 
-export default function SourceControlPane({ fileTree, activeTabId, theme = "dark" }: SourceControlPaneProps) {
+export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo, theme = "dark" }: SourceControlPaneProps) {
   const { data: session } = useSession();
   const [commitMessage, setCommitMessage] = useState("");
   const [isPushing, setIsPushing] = useState(false);
@@ -28,15 +30,87 @@ export default function SourceControlPane({ fileTree, activeTabId, theme = "dark
   const modifiedFiles = allFiles.filter(f => f.content !== undefined && f.content !== "// Content not loaded. Double click to fetch.");
 
   const handlePush = async () => {
-    if (!commitMessage.trim()) return;
+    if (!commitMessage.trim() || !activeGitRepo || !session?.accessToken) return;
     setIsPushing(true);
     setStatus(null);
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setStatus({ type: "success", message: "Successfully committed & pushed changes!" });
+      const octokit = new Octokit({ auth: session.accessToken as string });
+      const { owner, repo, branch } = activeGitRepo;
+
+      // 1. Get the current branch reference
+      const refResult = await octokit.rest.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+      });
+      const currentCommitSha = refResult.data.object.sha;
+
+      // 2. Get the current commit to find its base tree
+      const commitResult = await octokit.rest.git.getCommit({
+        owner,
+        repo,
+        commit_sha: currentCommitSha,
+      });
+      const baseTreeSha = commitResult.data.tree.sha;
+
+      // 3. Create blobs for all modified files
+      const treeUpdates: any[] = [];
+      for (const file of modifiedFiles) {
+        if (!file.content) continue;
+        const blobResult = await octokit.rest.git.createBlob({
+          owner,
+          repo,
+          content: file.content,
+          encoding: "utf-8",
+        });
+        
+        // Remove 'root/' prefix if present
+        const filePath = file.id.startsWith("root/") ? file.id.substring(5) : file.id;
+        
+        treeUpdates.push({
+          path: filePath,
+          mode: "100644",
+          type: "blob",
+          sha: blobResult.data.sha,
+        });
+      }
+
+      if (treeUpdates.length === 0) {
+        setStatus({ type: "success", message: "Nothing to push." });
+        setIsPushing(false);
+        return;
+      }
+
+      // 4. Create a new tree with the base tree
+      const newTreeResult = await octokit.rest.git.createTree({
+        owner,
+        repo,
+        base_tree: baseTreeSha,
+        tree: treeUpdates,
+      });
+
+      // 5. Create a new commit
+      const newCommitResult = await octokit.rest.git.createCommit({
+        owner,
+        repo,
+        message: commitMessage,
+        tree: newTreeResult.data.sha,
+        parents: [currentCommitSha],
+      });
+
+      // 6. Update the branch reference to point to the new commit
+      await octokit.rest.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+        sha: newCommitResult.data.sha,
+      });
+
+      setStatus({ type: "success", message: `Successfully pushed to ${branch}!` });
       setCommitMessage("");
     } catch (err: any) {
+      console.error("Push failed:", err);
       setStatus({ type: "error", message: err.message || "Failed to push changes." });
     } finally {
       setIsPushing(false);
@@ -51,11 +125,26 @@ export default function SourceControlPane({ fileTree, activeTabId, theme = "dark
     );
   }
 
+  if (!activeGitRepo) {
+    return (
+      <div className="p-6 text-center text-xs text-gray-400 mt-6 flex flex-col gap-2">
+        <AlertCircle className="w-8 h-8 text-yellow-500/50 mx-auto" />
+        <div>
+          <p className="font-bold text-gray-300">No Repository Connected</p>
+          <p className="mt-1 leading-relaxed">Import a repository from the GitHub tab to use Source Control.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex flex-col h-full ${theme === "light" ? "text-gray-800" : "text-gray-200"}`}>
       <div className={`p-3 border-b ${theme === "light" ? "border-gray-200" : "border-panel-border"}`}>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
-          <GitCommit className="w-3.5 h-3.5" /> Source Control
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+          <span className="flex items-center gap-1.5"><GitCommit className="w-3.5 h-3.5" /> Source Control</span>
+          <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded normal-case text-gray-300 font-mono overflow-hidden text-ellipsis max-w-[120px]" title={`${activeGitRepo.owner}/${activeGitRepo.repo}`}>
+            {activeGitRepo.repo}
+          </span>
         </h3>
       </div>
       

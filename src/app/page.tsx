@@ -675,7 +675,12 @@ export default function CodeSenseApp() {
               <GitHubPane onImportRepository={uploadWorkspace} theme={theme} />
             )}
             {activeLeftTab === "git" && (
-              <SourceControlPane fileTree={workspace.fileTree} activeTabId={workspace.activeTabId} theme={theme} />
+              <SourceControlPane 
+                fileTree={workspace.fileTree} 
+                activeTabId={workspace.activeTabId} 
+                activeGitRepo={workspace.activeGitRepo}
+                theme={theme} 
+              />
             )}
           </div>
         )}

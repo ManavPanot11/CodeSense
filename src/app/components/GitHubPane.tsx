@@ -6,7 +6,7 @@ import { FileNode } from "../hooks/useWorkspace";
 import { getFileTypeInfo } from "@/lib/fileTypes";
 
 interface GitHubPaneProps {
-  onImportRepository: (tree: FileNode[]) => void;
+  onImportRepository: (tree: FileNode[], repoInfo?: { owner: string; repo: string; branch: string }) => void;
   theme?: "dark" | "light";
 }
 
@@ -112,8 +112,7 @@ export default function GitHubPane({ onImportRepository, theme = "dark" }: GitHu
           }
         }
       }
-
-      onImportRepository(rootNodes);
+      onImportRepository(rootNodes, { owner, repo, branch: defaultBranch });
       
     } catch (err) {
       console.error("Failed to import repo", err);

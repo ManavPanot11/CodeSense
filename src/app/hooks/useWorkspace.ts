@@ -23,6 +23,7 @@ export interface WorkspaceState {
   fileTree: FileNode[];
   openTabs: OpenTab[];
   activeTabId: string | null;
+  activeGitRepo?: { owner: string; repo: string; branch: string };
 }
 
 const STORAGE_KEY = "codesense_workspace_state";
@@ -236,9 +237,10 @@ export function useWorkspace() {
     });
   }, [setWorkspaceState]);
 
-  const uploadWorkspace = useCallback((fileTree: FileNode[]) => {
+  const uploadWorkspace = useCallback((fileTree: FileNode[], repoInfo?: { owner: string; repo: string; branch: string }) => {
     setWorkspaceState(() => ({
       fileTree,
+      activeGitRepo: repoInfo,
       openTabs: [],
       activeTabId: null,
     }));
