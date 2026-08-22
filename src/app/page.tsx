@@ -1224,7 +1224,7 @@ export default function CodeSenseApp() {
                         return (
                           <div key={cat} className={`p-3 rounded-xl border flex flex-col justify-between gap-2 ${
                             isLight ? "bg-white border-gray-200" : "bg-white/5 border-white/10"
-                          }`} title={data.issues?.length ? \`Issues: \${data.issues.map((i:any) => i.description).join(', ')}\` : ''}>
+                          }`} title={data.issues?.length ? `Issues: ${data.issues.map((i:any) => i.description).join(', ')}` : ''}>
                             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{cat}</span>
                             <div className="flex justify-between items-end">
                               <span className={`text-2xl font-black leading-none ${
