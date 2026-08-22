@@ -150,7 +150,10 @@ export default function FileExplorer({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   useEffect(() => {
-    const handleClickOutside = () => setContextMenu(null);
+    const handleClickOutside = () => {
+      setContextMenu(null);
+      setSelectedIds(new Set());
+    };
     window.addEventListener("click", handleClickOutside);
     return () => window.removeEventListener("click", handleClickOutside);
   }, []);
