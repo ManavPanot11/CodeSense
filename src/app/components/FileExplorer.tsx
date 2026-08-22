@@ -12,6 +12,7 @@ interface FileExplorerProps {
   onCreateFolder: (parentId: string | null, name: string) => void;
   onRename: (nodeId: string, newName: string) => void;
   onDelete: (nodeId: string) => void;
+  onDownloadZip?: (selectedIds: Set<string>) => void;
   theme?: "dark" | "light";
 }
 
@@ -30,10 +31,39 @@ export default function FileExplorer({
   onCreateFolder,
   onRename,
   onDelete,
+  onDownloadZip,
   theme = "dark"
 }: FileExplorerProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const handleNodeSelect = (e: React.MouseEvent, node: FileNode) => {
+    e.stopPropagation();
+    if (node.type === "folder") {
+      // Folders are not selectable for ZIP download in this implementation
+      setSelectedIds(new Set());
+      return;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      const newSet = new Set(selectedIds);
+      if (newSet.has(node.id)) {
+        newSet.delete(node.id);
+      } else {
+        newSet.add(node.id);
+      }
+      setSelectedIds(newSet);
+    } else {
+      setSelectedIds(new Set([node.id]));
+    }
+  };
+
+  // Clear selection when clicking outside
+  const handleContainerClick = () => {
+    setSelectedIds(new Set());
+  };
 
   const handleUploadFolderClick = () => {
     folderInputRef.current?.click();
@@ -158,6 +188,8 @@ export default function FileExplorer({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    } else if (action === "downloadZip" && onDownloadZip && selectedIds.size > 0) {
+      onDownloadZip(selectedIds);
     }
     setContextMenu(null);
   };
@@ -225,6 +257,7 @@ export default function FileExplorer({
 
       <div 
         className="flex-1 overflow-y-auto p-2"
+        onClick={handleContainerClick}
         onContextMenu={(e) => {
           if (e.target === e.currentTarget) {
             handleContextMenu(e, null);
@@ -255,6 +288,8 @@ export default function FileExplorer({
               node={node} 
               onOpenFile={onOpenFile}
               onContextMenu={handleContextMenu}
+              selectedIds={selectedIds}
+              onNodeSelect={handleNodeSelect}
               theme={theme}
             />
           ))
@@ -272,6 +307,11 @@ export default function FileExplorer({
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
+          {selectedIds.size > 1 && (
+            <div className="px-3 py-1.5 text-[10px] font-bold text-primary uppercase tracking-wider border-b border-panel-border/50 mb-1">
+              {selectedIds.size} files selected
+            </div>
+          )}
           <button 
             className={`w-full flex items-center px-3 py-1.5 transition-colors ${
               theme === "light" ? "hover:bg-gray-100" : "hover:bg-white/10"
@@ -318,6 +358,19 @@ export default function FileExplorer({
                   </button>
                 </>
               )}
+              {selectedIds.size > 1 && onDownloadZip && (
+                <>
+                  <div className={`h-px my-1 ${theme === "light" ? "bg-gray-200" : "bg-panel-border"}`} />
+                  <button 
+                    className={`w-full flex items-center px-3 py-1.5 transition-colors text-primary ${
+                      theme === "light" ? "hover:bg-gray-100" : "hover:bg-white/10"
+                    }`}
+                    onClick={() => executeAction('downloadZip')}
+                  >
+                    <Download className="w-3.5 h-3.5 mr-2" /> Download Selected as ZIP
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -326,16 +379,19 @@ export default function FileExplorer({
   );
 }
 
-function FileTreeNode({ 
   node, 
   onOpenFile, 
   onContextMenu, 
+  selectedIds,
+  onNodeSelect,
   depth = 0,
   theme = "dark"
 }: { 
   node: FileNode, 
   onOpenFile: any, 
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void,
+  selectedIds: Set<string>,
+  onNodeSelect: (e: React.MouseEvent, node: FileNode) => void,
   depth?: number,
   theme?: "dark" | "light"
 }) {
@@ -343,26 +399,43 @@ function FileTreeNode({
   const isDir = node.type === "folder";
   const typeInfo = getFileTypeInfo(node.name);
   const FileIcon = typeInfo.icon;
+  const isSelected = selectedIds.has(node.id);
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (isDir) {
       setIsOpen(!isOpen);
     } else {
-      onOpenFile(node.id, node.name, node.content || "", node.language || "plaintext");
+      onNodeSelect(e, node);
+      // Only open the file in the editor if it's a simple click (not ctrl/cmd multi-select)
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        onOpenFile(node.id, node.name, node.content || "", node.language || "plaintext");
+      }
     }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // If we right click an unselected file, select it first
+    if (!isDir && !selectedIds.has(node.id)) {
+      onNodeSelect({ ...e, ctrlKey: false, metaKey: false } as React.MouseEvent, node);
+    }
+    onContextMenu(e, node);
   };
 
   return (
     <div>
       <div 
         className={`flex items-center py-1 cursor-pointer text-xs rounded px-1 transition-colors group ${
-          theme === "light"
-            ? "text-gray-700 hover:bg-gray-200"
-            : "text-gray-300 hover:bg-white/5"
+          isSelected 
+            ? "bg-primary/20 text-primary" 
+            : theme === "light"
+              ? "text-gray-700 hover:bg-gray-200"
+              : "text-gray-300 hover:bg-white/5"
         }`}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onClick={handleClick}
-        onContextMenu={(e) => onContextMenu(e, node)}
+        onContextMenu={handleContextMenu}
       >
         {isDir ? (
           <span className="w-4 h-4 mr-1 flex items-center justify-center text-gray-500">
@@ -388,6 +461,8 @@ function FileTreeNode({
               node={child} 
               onOpenFile={onOpenFile} 
               onContextMenu={onContextMenu}
+              selectedIds={selectedIds}
+              onNodeSelect={onNodeSelect}
               depth={depth + 1} 
               theme={theme}
             />

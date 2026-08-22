@@ -25,6 +25,7 @@ import EditorTabs from "./components/EditorTabs";
 import GitHubPane from "./components/GitHubPane";
 import SourceControlPane from "./components/SourceControlPane";
 import { detectLanguageFromContent, getExtensionForLanguage, getFileTypeInfo } from "@/lib/fileTypes";
+import JSZip from "jszip";
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -53,6 +54,10 @@ export default function CodeSenseApp() {
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   
+  // ZIP Download State
+  const [isZipping, setIsZipping] = useState(false);
+  const [zipStatus, setZipStatus] = useState("");
+
   // Theme State with localStorage persistence
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
@@ -207,6 +212,104 @@ export default function CodeSenseApp() {
       setIsExecuting(false);
     }
   }, [code, language]);
+
+  // ── Multi-File ZIP Download ──────────────────────────────────────
+  const handleDownloadZip = async (selectedIds: Set<string>) => {
+    if (!workspace || selectedIds.size === 0) return;
+    setIsZipping(true);
+    setZipStatus("Preparing ZIP...");
+
+    try {
+      const zip = new JSZip();
+
+      // Find all selected file nodes
+      const selectedFiles: any[] = [];
+      const findFiles = (nodes: any[]) => {
+        for (const node of nodes) {
+          if (node.type === "file" && selectedIds.has(node.id)) {
+            selectedFiles.push(node);
+          }
+          if (node.type === "folder" && node.children) {
+            findFiles(node.children);
+          }
+        }
+      };
+      findFiles(workspace.fileTree);
+
+      setZipStatus(`Generating file descriptions (0/${selectedFiles.length})...`);
+
+      // Generate READMEs in parallel
+      let completed = 0;
+      const readmePromises = selectedFiles.map(async (file) => {
+        try {
+          const res = await fetch("/api/generate-readme", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: file.content || "",
+              language: file.language || "plaintext",
+              filename: file.name
+            })
+          });
+          
+          let readme = "";
+          if (res.ok) {
+            const data = await res.json();
+            readme = data.readme || "";
+          } else {
+            readme = `README generation failed.\nThe file is included for manual inspection.`;
+          }
+
+          completed++;
+          setZipStatus(`Generating file descriptions (${completed}/${selectedFiles.length})...`);
+          
+          return { file, readme };
+        } catch (e) {
+          completed++;
+          setZipStatus(`Generating file descriptions (${completed}/${selectedFiles.length})...`);
+          return { file, readme: `README generation failed.\nThe file is included for manual inspection.` };
+        }
+      });
+
+      const results = await Promise.all(readmePromises);
+
+      setZipStatus("Creating ZIP...");
+
+      for (const result of results) {
+        const { file, readme } = result;
+        // Strip the "root/" prefix to get a clean relative path
+        const relativePath = file.id.startsWith("root/") ? file.id.substring(5) : file.id;
+        
+        // Add source file
+        zip.file(relativePath, file.content || "");
+
+        // Add readme file next to it
+        const dirPath = relativePath.substring(0, relativePath.lastIndexOf("/") + 1);
+        const baseName = file.name.includes(".") ? file.name.substring(0, file.name.lastIndexOf(".")) : file.name;
+        const readmePath = `${dirPath}${baseName}_readme.txt`;
+        zip.file(readmePath, readme);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `project-files-${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      setZipStatus("Download complete.");
+      setTimeout(() => setIsZipping(false), 1500);
+
+    } catch (e) {
+      console.error("ZIP Error:", e);
+      setZipStatus("Error creating ZIP.");
+      setTimeout(() => setIsZipping(false), 2000);
+    }
+  };
 
   // ── Keyboard Shortcuts ────────────────────────────────────────────
   useEffect(() => {
@@ -481,6 +584,7 @@ export default function CodeSenseApp() {
                 onCreateFolder={createFolder}
                 onRename={renameNode}
                 onDelete={deleteNode}
+                onDownloadZip={handleDownloadZip}
                 theme={theme}
               />
             )}
@@ -850,6 +954,24 @@ export default function CodeSenseApp() {
           </div>
         </div>
       </div>
+
+      {/* ZIP Loading Overlay */}
+      {isZipping && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className={`flex flex-col items-center p-8 rounded-xl shadow-2xl border ${
+            theme === "light" 
+              ? "bg-white border-gray-200" 
+              : "bg-[#1a1a1f] border-panel-border"
+          }`}>
+            <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
+            <h3 className={`text-lg font-bold mb-2 ${theme === "light" ? "text-gray-900" : "text-gray-100"}`}>
+              {zipStatus}
+            </h3>
+            <p className="text-sm text-gray-500">Please do not close this tab.</p>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
