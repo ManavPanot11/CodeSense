@@ -55,7 +55,7 @@ Schema:
       "startLine": number,
       "endLine": number,
       "description": "Short explanation",
-      "suggestedFix": "EXACT raw code snippet to replace the lines. NO conversational text like 'Change to:' or 'Add this:'. ONLY the raw code."
+      "suggestedFix": "EXACT raw code snippet to replace the lines. ONLY the pure corrected code. DO NOT use diff format (+/-). DO NOT repeat the original wrong code. NO conversational text."
     }
   ],
   "documentation": "1-2 sentence description",
