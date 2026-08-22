@@ -14,6 +14,9 @@ import {
   Loader2,
   Zap,
   PanelLeft,
+  Sun,
+  Moon,
+  Check,
 } from "lucide-react";
 
 import { useWorkspace } from "./hooks/useWorkspace";
@@ -21,6 +24,7 @@ import FileExplorer from "./components/FileExplorer";
 import EditorTabs from "./components/EditorTabs";
 import GitHubPane from "./components/GitHubPane";
 import SourceControlPane from "./components/SourceControlPane";
+import { detectLanguageFromContent, getExtensionForLanguage, getFileTypeInfo } from "@/lib/fileTypes";
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -32,9 +36,11 @@ export default function CodeSenseApp() {
     switchTab,
     updateActiveTabContent,
     updateActiveTabLanguage,
+    updateTabNameAndLanguage,
     saveActiveTab,
     setCursorPosition,
     uploadWorkspace,
+    addFiles,
     createFile,
     createFolder,
     renameNode,
@@ -46,6 +52,22 @@ export default function CodeSenseApp() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  
+  // Theme State with localStorage persistence
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("codesense_theme") as "dark" | "light" | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("codesense_theme", next);
+  };
 
   // Execution state
   const [isExecuting, setIsExecuting] = useState(false);
@@ -57,63 +79,104 @@ export default function CodeSenseApp() {
   } | null>(null);
   const [execTime, setExecTime] = useState<number | null>(null);
 
-  // Abort controller for cancellable requests
+  // Request race condition management
   const abortRef = useRef<AbortController | null>(null);
+  const lastAnalyzedCodeRef = useRef<string>("");
+  const currentReqIdRef = useRef<number>(0);
 
   const activeTab = workspace?.openTabs.find((t) => t.fileId === workspace.activeTabId);
   const code = activeTab?.content || "";
   const language = activeTab?.language || "plaintext";
 
-  // ── Analyze (non-streaming) ───────────────────────────────────────
-  const analyzeCode = useCallback(async () => {
-    if (!code.trim()) return;
+  // ── Automatic Language Detection ─────────────────────────────────
+  const lastDetectedLangRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeTab || !code.trim()) return;
 
+    // Detect language from code structure
+    const detected = detectLanguageFromContent(code);
+    if (detected && detected !== activeTab.language && detected !== lastDetectedLangRef.current) {
+      lastDetectedLangRef.current = detected;
+      
+      // Update extension if default or generic
+      const currentParts = activeTab.name.split(".");
+      const baseName = currentParts.length > 1 ? currentParts.slice(0, -1).join(".") : activeTab.name;
+      const targetExt = getExtensionForLanguage(detected);
+      const newFileName = `${baseName}.${targetExt}`;
+
+      updateTabNameAndLanguage(activeTab.fileId, newFileName, detected);
+    }
+  }, [code, activeTab, updateTabNameAndLanguage]);
+
+  // ── Analyze (Fast non-blocking with race-condition guards) ────────
+  const analyzeCode = useCallback(async (isManual = false) => {
+    const trimmedCode = code.trim();
+    if (!trimmedCode) return;
+
+    // Avoid redundant duplicate requests unless clicked manually
+    if (!isManual && trimmedCode === lastAnalyzedCodeRef.current) {
+      return;
+    }
+
+    // Cancel in-flight stale requests
     if (abortRef.current) {
       abortRef.current.abort();
     }
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Timeout to prevent infinite hanging
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const reqId = ++currentReqIdRef.current;
+
+    // Strict 10-second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     setIsAnalyzing(true);
-    setAnalysisResult(null);
+    if (isManual) {
+      setAnalysisResult(null);
+    }
 
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, language }),
+        body: JSON.stringify({ code: trimmedCode, language }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+
+      // Verify request is not superseded by a newer keystroke/request
+      if (reqId !== currentReqIdRef.current) return;
 
       const data = await res.json();
       if (!res.ok) {
         setAnalysisResult({ error: data.error || "Analysis failed" });
       } else {
         setAnalysisResult(data);
+        lastAnalyzedCodeRef.current = trimmedCode;
       }
     } catch (err: any) {
+      if (reqId !== currentReqIdRef.current) return;
+
       if (err.name !== "AbortError") {
         console.error("Analysis error:", err);
-        setAnalysisResult({ error: err.message || "Request timed out or failed" });
-      } else {
-        setAnalysisResult({ error: "Analysis request timed out or was cancelled." });
+        setAnalysisResult({ error: err.message || "Analysis service unavailable." });
+      } else if (isManual) {
+        setAnalysisResult({ error: "Analysis request timed out. Please retry." });
       }
     } finally {
-      setIsAnalyzing(false);
       clearTimeout(timeoutId);
+      if (reqId === currentReqIdRef.current) {
+        setIsAnalyzing(false);
+      }
     }
   }, [code, language]);
 
-  // ── Auto-analyze ──────────────────────────────────────────────────
+  // ── Auto-analyze with Debounce ───────────────────────────────────
   useEffect(() => {
     if (!code.trim() || isExecuting) return;
     const timer = setTimeout(() => {
-      analyzeCode();
-    }, 2500); // 2.5s debounce
+      analyzeCode(false);
+    }, 1800); // 1.8s debounce after typing stops
     return () => clearTimeout(timer);
   }, [code, language, isExecuting, analyzeCode]);
 
@@ -150,12 +213,10 @@ export default function CodeSenseApp() {
   // ── Keyboard Shortcuts ────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd + S to Save
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
         saveActiveTab();
       }
-      // Ctrl/Cmd + Enter to Run
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
         executeCode();
@@ -169,20 +230,32 @@ export default function CodeSenseApp() {
   const handleApplyFix = (issue: any) => {
     if (!issue.suggestedFix) return;
     const lines = code.split("\n");
-    const startIdx = issue.startLine - 1;
-    const endIdx = issue.endLine;
+    const startIdx = Math.max(0, (issue.startLine || 1) - 1);
+    const endIdx = Math.min(lines.length, issue.endLine || lines.length);
     lines.splice(startIdx, endIdx - startIdx, issue.suggestedFix);
     updateActiveTabContent(lines.join("\n"));
   };
 
-  // ── Export helpers ────────────────────────────────────────────────
+  // ── Export / Download helpers ────────────────────────────────────
   const handleExportCode = () => {
     if (!activeTab) return;
-    const blob = new Blob([code], { type: "text/plain" });
+    
+    // Determine proper filename with extension according to detected language
+    let exportFileName = activeTab.name;
+    const parts = exportFileName.split(".");
+    const ext = parts.length > 1 ? parts.pop()?.toLowerCase() : "";
+    const expectedExt = getExtensionForLanguage(language);
+    
+    if (!ext || ext === "txt") {
+      const base = parts.join(".") || "code";
+      exportFileName = `${base}.${expectedExt}`;
+    }
+
+    const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = activeTab.name;
+    a.download = exportFileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -191,7 +264,7 @@ export default function CodeSenseApp() {
 
   const handleExportDocs = () => {
     if (!analysisResult?.documentation) return;
-    const blob = new Blob([analysisResult.documentation], { type: "text/markdown" });
+    const blob = new Blob([analysisResult.documentation], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -202,7 +275,6 @@ export default function CodeSenseApp() {
     URL.revokeObjectURL(url);
   };
 
-  // ── Editor Callbacks ──────────────────────────────────────────────
   const handleEditorMount = (editor: any) => {
     editor.onDidChangeCursorPosition((e: any) => {
       setCursorPosition(e.position.lineNumber, e.position.column);
@@ -216,64 +288,122 @@ export default function CodeSenseApp() {
     { id: "score", label: "Score", icon: BarChart },
   ] as const;
 
-  if (!workspace) return <div className="h-screen flex items-center justify-center bg-background"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if (!workspace) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#09090b]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const totalLines = code.split('\n').length;
+  const isLight = theme === "light";
 
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground">
+    <div className={`flex flex-col h-screen select-none ${
+      isLight ? "bg-white text-gray-900" : "bg-[#09090b] text-[#fafafa]"
+    }`}>
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-panel-border bg-panel glass-panel z-10 shrink-0">
+      <header className={`flex items-center justify-between px-3 py-2 border-b z-10 shrink-0 ${
+        isLight ? "bg-gray-50 border-gray-200" : "bg-[#0d0d0f] border-panel-border"
+      }`}>
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 hover:bg-white/10 rounded-md transition-colors text-gray-400 hover:text-white"
+            className={`p-1.5 rounded-md transition-colors ${
+              isLight ? "hover:bg-gray-200 text-gray-600" : "hover:bg-white/10 text-gray-400"
+            }`}
+            title="Toggle Sidebar"
           >
-            <PanelLeft className="w-5 h-5" />
+            <PanelLeft className="w-4 h-4" />
           </button>
+          
           <div className="flex items-center gap-2">
             <FileCode className="w-5 h-5 text-primary" />
-            <h1 className="text-lg font-bold tracking-tight hidden sm:block">
+            <h1 className="text-base font-bold tracking-tight hidden sm:block">
               Code<span className="text-primary">Sense</span>
             </h1>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5">
           {/* Left Panel Toggles */}
-          <div className="flex items-center gap-1 sm:gap-2 mr-2 border-r border-panel-border pr-2">
+          <div className={`flex items-center gap-1 mr-1 border-r pr-2 ${
+            isLight ? "border-gray-200" : "border-panel-border"
+          }`}>
             <button
               onClick={() => { setSidebarOpen(true); setActiveLeftTab("explorer"); }}
-              className={`p-1.5 rounded-md transition-colors ${activeLeftTab === "explorer" && sidebarOpen ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}
-              title="Explorer"
+              className={`p-1.5 rounded-md text-xs flex items-center gap-1 font-medium transition-colors ${
+                activeLeftTab === "explorer" && sidebarOpen
+                  ? isLight ? "bg-gray-200 text-gray-900" : "bg-white/10 text-white"
+                  : isLight ? "text-gray-500 hover:text-gray-900" : "text-gray-400 hover:text-white"
+              }`}
+              title="File Explorer"
             >
               <FileCode className="w-4 h-4" />
+              <span className="hidden md:inline">Files</span>
             </button>
             <button
               onClick={() => { setSidebarOpen(true); setActiveLeftTab("git"); }}
-              className={`p-1.5 rounded-md transition-colors ${activeLeftTab === "git" && sidebarOpen ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}
+              className={`p-1.5 rounded-md text-xs flex items-center gap-1 font-medium transition-colors ${
+                activeLeftTab === "git" && sidebarOpen
+                  ? isLight ? "bg-gray-200 text-gray-900" : "bg-white/10 text-white"
+                  : isLight ? "text-gray-500 hover:text-gray-900" : "text-gray-400 hover:text-white"
+              }`}
               title="Source Control"
             >
               <Terminal className="w-4 h-4" />
+              <span className="hidden md:inline">Git</span>
             </button>
             <button
               onClick={() => { setSidebarOpen(true); setActiveLeftTab("github"); }}
-              className={`p-1.5 rounded-md transition-colors ${activeLeftTab === "github" && sidebarOpen ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}
-              title="GitHub"
+              className={`p-1.5 rounded-md text-xs flex items-center gap-1 font-medium transition-colors ${
+                activeLeftTab === "github" && sidebarOpen
+                  ? isLight ? "bg-gray-200 text-gray-900" : "bg-white/10 text-white"
+                  : isLight ? "text-gray-500 hover:text-gray-900" : "text-gray-400 hover:text-white"
+              }`}
+              title="GitHub Repositories"
             >
               <Zap className="w-4 h-4" />
+              <span className="hidden md:inline">GitHub</span>
             </button>
           </div>
 
+          {/* Language Selector */}
           {activeTab && (
             <select
               value={language}
-              onChange={(e) => updateActiveTabLanguage(e.target.value)}
-              className="bg-black/50 border border-panel-border rounded-md px-2 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm outline-none focus:border-primary transition-colors cursor-pointer"
+              onChange={(e) => {
+                const newLang = e.target.value;
+                const expectedExt = getExtensionForLanguage(newLang);
+                const parts = activeTab.name.split(".");
+                const base = parts.length > 1 ? parts.slice(0, -1).join(".") : activeTab.name;
+                updateTabNameAndLanguage(activeTab.fileId, `${base}.${expectedExt}`, newLang);
+              }}
+              className={`border rounded-md px-2 py-1 text-xs outline-none focus:border-primary transition-colors cursor-pointer ${
+                isLight ? "bg-white border-gray-300 text-gray-900" : "bg-black/50 border-panel-border text-gray-200"
+              }`}
             >
-              <option value="javascript">JavaScript</option>
-              <option value="typescript">TypeScript</option>
-              <option value="python">Python</option>
+              <option value="python">Python (.py)</option>
+              <option value="javascript">JavaScript (.js)</option>
+              <option value="typescript">TypeScript (.ts)</option>
+              <option value="cpp">C++ (.cpp)</option>
+              <option value="c">C (.c)</option>
+              <option value="java">Java (.java)</option>
+              <option value="csharp">C# (.cs)</option>
+              <option value="go">Go (.go)</option>
+              <option value="rust">Rust (.rs)</option>
+              <option value="php">PHP (.php)</option>
+              <option value="ruby">Ruby (.rb)</option>
+              <option value="swift">Swift (.swift)</option>
+              <option value="kotlin">Kotlin (.kt)</option>
+              <option value="html">HTML (.html)</option>
+              <option value="css">CSS (.css)</option>
+              <option value="scss">SCSS (.scss)</option>
+              <option value="json">JSON (.json)</option>
+              <option value="sql">SQL (.sql)</option>
+              <option value="markdown">Markdown (.md)</option>
+              <option value="plaintext">Plain Text (.txt)</option>
             </select>
           )}
 
@@ -281,40 +411,58 @@ export default function CodeSenseApp() {
           <button
             onClick={executeCode}
             disabled={isExecuting || !activeTab}
-            className="flex items-center gap-1.5 sm:gap-2 bg-emerald-600 text-white px-3 py-1 sm:px-4 sm:py-1.5 rounded-md text-xs sm:text-sm font-semibold hover:bg-emerald-500 transition-colors disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-1 rounded-md text-xs font-semibold hover:bg-emerald-500 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
           >
-            {isExecuting ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <Play className="w-3 h-3 sm:w-4 sm:h-4" />}
+            {isExecuting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">{isExecuting ? "Running…" : "Run"}</span>
           </button>
 
           {/* Analyze */}
           <button
-            onClick={analyzeCode}
+            onClick={() => analyzeCode(true)}
             disabled={isAnalyzing || !activeTab}
-            className="flex items-center gap-1.5 sm:gap-2 bg-primary text-black px-3 py-1 sm:px-4 sm:py-1.5 rounded-md text-xs sm:text-sm font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-1.5 bg-primary text-black px-3 py-1 rounded-md text-xs font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
           >
-            {isAnalyzing ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <Zap className="w-3 h-3 sm:w-4 sm:h-4" />}
+            {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">{isAnalyzing ? "Analyzing…" : "Analyze"}</span>
           </button>
 
-          <div className="hidden md:flex items-center gap-2">
+          {/* Download Code & Docs */}
+          <div className="flex items-center gap-1">
             <button
               onClick={handleExportCode}
               disabled={!activeTab}
-              className="flex items-center gap-1.5 bg-panel border border-panel-border px-3 py-1.5 rounded-md text-xs sm:text-sm hover:bg-white/5 transition-colors cursor-pointer disabled:opacity-30"
-              title="Download Code"
+              className={`flex items-center p-1.5 border rounded-md transition-colors cursor-pointer disabled:opacity-30 ${
+                isLight ? "border-gray-300 hover:bg-gray-200 text-gray-700" : "border-panel-border hover:bg-white/5 text-gray-300"
+              }`}
+              title="Download Code File"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={handleExportDocs}
               disabled={!analysisResult?.documentation}
-              className="flex items-center gap-1.5 bg-panel border border-panel-border px-3 py-1.5 rounded-md text-xs sm:text-sm hover:bg-white/5 transition-colors cursor-pointer disabled:opacity-30"
-              title="Download Docs"
+              className={`flex items-center p-1.5 border rounded-md transition-colors cursor-pointer disabled:opacity-30 ${
+                isLight ? "border-gray-300 hover:bg-gray-200 text-gray-700" : "border-panel-border hover:bg-white/5 text-gray-300"
+              }`}
+              title="Download Docs (README.md)"
             >
-              <Book className="w-4 h-4" />
+              <Book className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {/* Theme Toggle Button */}
+          <button
+            onClick={toggleTheme}
+            className={`p-1.5 border rounded-md transition-colors cursor-pointer flex items-center justify-center ${
+              isLight 
+                ? "border-gray-300 bg-gray-100 hover:bg-gray-200 text-gray-700" 
+                : "border-panel-border bg-white/5 hover:bg-white/10 text-yellow-400"
+            }`}
+            title={`Switch to ${isLight ? "Dark" : "Light"} Mode`}
+          >
+            {isLight ? <Moon className="w-3.5 h-3.5 text-gray-700" /> : <Sun className="w-3.5 h-3.5" />}
+          </button>
         </div>
       </header>
 
@@ -322,34 +470,41 @@ export default function CodeSenseApp() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
         {sidebarOpen && (
-          <div className="w-64 border-r border-panel-border bg-[#0d0d0f] flex flex-col shrink-0">
+          <div className={`w-64 border-r flex flex-col shrink-0 ${
+            isLight ? "bg-gray-50 border-gray-200" : "bg-[#0d0d0f] border-panel-border"
+          }`}>
             {activeLeftTab === "explorer" && (
               <FileExplorer 
                 fileTree={workspace.fileTree} 
                 onOpenFile={openFile} 
                 onUploadWorkspace={uploadWorkspace} 
+                onAddFiles={addFiles}
                 onCreateFile={createFile}
                 onCreateFolder={createFolder}
                 onRename={renameNode}
                 onDelete={deleteNode}
+                theme={theme}
               />
             )}
             {activeLeftTab === "github" && (
-              <GitHubPane onImportRepository={uploadWorkspace} />
+              <GitHubPane onImportRepository={uploadWorkspace} theme={theme} />
             )}
             {activeLeftTab === "git" && (
-              <SourceControlPane fileTree={workspace.fileTree} activeTabId={workspace.activeTabId} />
+              <SourceControlPane fileTree={workspace.fileTree} activeTabId={workspace.activeTabId} theme={theme} />
             )}
           </div>
         )}
 
         {/* Center Pane: Editor */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-panel-border bg-[#1e1e1e]">
+        <div className={`flex-1 flex flex-col min-w-0 border-r ${
+          isLight ? "bg-white border-gray-200" : "bg-[#1e1e1e] border-panel-border"
+        }`}>
           <EditorTabs 
             tabs={workspace.openTabs} 
             activeTabId={workspace.activeTabId} 
             onSwitchTab={switchTab} 
             onCloseTab={closeTab} 
+            theme={theme}
           />
           
           <div className="flex-1 relative min-h-0">
@@ -357,7 +512,7 @@ export default function CodeSenseApp() {
               <Editor
                 height="100%"
                 language={language}
-                theme="vs-dark"
+                theme={isLight ? "light" : "vs-dark"}
                 value={code}
                 onChange={(value) => updateActiveTabContent(value || "")}
                 onMount={handleEditorMount}
@@ -365,25 +520,28 @@ export default function CodeSenseApp() {
                   minimap: { enabled: false },
                   fontSize: 14,
                   fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                  padding: { top: 16 },
+                  padding: { top: 14 },
                   scrollBeyondLastLine: false,
                   smoothScrolling: true,
                   cursorBlinking: "smooth",
                   cursorSmoothCaretAnimation: "on",
                   formatOnPaste: true,
+                  automaticLayout: true,
                 }}
               />
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-500 flex-col gap-4">
-                <FileCode className="w-16 h-16 opacity-20" />
-                <p>Open a file from the explorer to start coding.</p>
+              <div className="flex items-center justify-center h-full text-gray-400 flex-col gap-3">
+                <FileCode className="w-12 h-12 opacity-30" />
+                <p className="text-xs">Select or upload a file from the explorer to begin.</p>
               </div>
             )}
           </div>
           
           {/* Status Bar */}
           {activeTab && (
-            <div className="flex items-center justify-between px-3 py-1 bg-[#007acc] text-white text-xs font-mono shrink-0">
+            <div className={`flex items-center justify-between px-3 py-1 text-[11px] font-mono shrink-0 ${
+              isLight ? "bg-gray-100 border-t border-gray-200 text-gray-600" : "bg-[#007acc] text-white"
+            }`}>
               <div className="flex items-center gap-4">
                 <span>Ln {activeTab.cursorPosition?.line || 1}, Col {activeTab.cursorPosition?.column || 1}</span>
                 <span>{totalLines} lines</span>
@@ -391,7 +549,7 @@ export default function CodeSenseApp() {
               <div className="flex items-center gap-4">
                 <span className="capitalize">{language}</span>
                 {activeTab.content !== activeTab.savedContent && (
-                   <span className="cursor-pointer" onClick={saveActiveTab} title="Click to save (or Ctrl+S)">Unsaved Changes</span>
+                   <span className="cursor-pointer font-semibold text-amber-300" onClick={saveActiveTab} title="Click to save (Ctrl+S)">● Unsaved Changes</span>
                 )}
               </div>
             </div>
@@ -399,23 +557,31 @@ export default function CodeSenseApp() {
         </div>
 
         {/* Right Pane: Feedback / Console */}
-        <div className="w-[400px] xl:w-[500px] flex flex-col bg-[#0d0d0f] shrink-0">
+        <div className={`w-[380px] xl:w-[460px] flex flex-col shrink-0 ${
+          isLight ? "bg-gray-50 text-gray-900" : "bg-[#0d0d0f] text-gray-100"
+        }`}>
           {/* Tabs */}
-          <div className="flex border-b border-panel-border px-2">
+          <div className={`flex border-b px-2 ${
+            isLight ? "border-gray-200" : "border-panel-border"
+          }`}>
             {rightTabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveRightTab(id)}
-                className={`flex items-center gap-2 px-3 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors cursor-pointer flex-1 justify-center sm:flex-none sm:justify-start ${
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex-1 justify-center sm:flex-none ${
                   activeRightTab === id
                     ? "border-primary text-primary"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
+                    : isLight 
+                      ? "border-transparent text-gray-500 hover:text-gray-900" 
+                      : "border-transparent text-gray-400 hover:text-gray-200"
                 }`}
               >
-                <Icon className="w-4 h-4 hidden sm:block" />
+                <Icon className="w-3.5 h-3.5" />
                 {label}
                 {id === "issues" && analysisResult?.issues && (
-                  <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] tabular-nums">
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] tabular-nums font-bold ${
+                    isLight ? "bg-gray-200 text-gray-800" : "bg-white/10 text-gray-300"
+                  }`}>
                     {analysisResult.issues.length}
                   </span>
                 )}
@@ -424,48 +590,58 @@ export default function CodeSenseApp() {
           </div>
 
           {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <div className="flex-1 overflow-y-auto p-4">
             {/* ── Issues ───────────────────────────────────── */}
             {activeRightTab === "issues" && (
               <div>
                 {isAnalyzing && !analysisResult ? (
-                  <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4 py-20">
-                    <Loader2 className="w-10 h-10 animate-spin text-primary/40" />
-                    <p className="text-sm">Analyzing code…</p>
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3 py-16">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-xs">Analyzing code…</p>
                   </div>
                 ) : !analysisResult ? (
-                  <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4 py-20">
-                    <Settings className="w-12 h-12 opacity-20" />
-                    <p className="text-sm text-center">Click &quot;Analyze&quot; to review the active file.</p>
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3 py-16">
+                    <Settings className="w-10 h-10 opacity-30" />
+                    <p className="text-xs text-center">Type code or click &quot;Analyze&quot; to review.</p>
                   </div>
                 ) : analysisResult.error ? (
-                  <div className="text-red-400 bg-red-500/10 border border-red-500/20 p-4 rounded-lg text-sm">
-                    {analysisResult.error}
+                  <div className="text-red-400 bg-red-500/10 border border-red-500/20 p-3.5 rounded-lg text-xs leading-relaxed flex flex-col gap-2">
+                    <p>{analysisResult.error}</p>
+                    <button 
+                      onClick={() => analyzeCode(true)}
+                      className="self-start px-2 py-1 bg-red-500/20 hover:bg-red-500/30 rounded text-red-300 text-[11px] font-semibold transition-colors cursor-pointer"
+                    >
+                      Retry Analysis
+                    </button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-base sm:text-lg font-semibold text-white">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">
                         Detected Issues
                       </h2>
-                      <span className="bg-white/10 px-2 py-1 rounded text-xs text-gray-300">
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                        isLight ? "bg-gray-200 text-gray-800" : "bg-white/10 text-gray-300"
+                      }`}>
                         {analysisResult.issues?.length || 0} found
                       </span>
                     </div>
-                    {!analysisResult.issues ||
-                    analysisResult.issues.length === 0 ? (
-                      <div className="text-green-400 bg-green-500/10 border border-green-500/20 p-4 rounded-lg flex flex-col items-center text-center gap-2 text-sm">
-                        <span>No issues found! Your code is looking great.</span>
+                    {!analysisResult.issues || analysisResult.issues.length === 0 ? (
+                      <div className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 p-3.5 rounded-lg flex items-center gap-2 text-xs">
+                        <Check className="w-4 h-4 shrink-0" />
+                        <span>No issues found! Your code is looking clean.</span>
                       </div>
                     ) : (
                       analysisResult.issues.map((issue: any, idx: number) => (
                         <div
                           key={idx}
-                          className="glass-panel p-4 rounded-lg flex flex-col gap-2"
+                          className={`p-3 rounded-lg border flex flex-col gap-1.5 ${
+                            isLight ? "bg-white border-gray-200 shadow-xs" : "bg-white/5 border-panel-border"
+                          }`}
                         >
                           <div className="flex items-center justify-between">
                             <span
-                              className={`text-[10px] sm:text-xs font-bold px-2 py-1 rounded ${
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                                 issue.severity === "critical"
                                   ? "bg-red-500/20 text-red-400 border border-red-500/30"
                                   : issue.severity === "warning"
@@ -475,28 +651,30 @@ export default function CodeSenseApp() {
                             >
                               {issue.severity.toUpperCase()}
                             </span>
-                            <span className="text-[10px] sm:text-xs text-gray-500">
+                            <span className="text-[10px] text-gray-400">
                               Lines {issue.startLine}-{issue.endLine}
                             </span>
                           </div>
                           {issue.title && (
-                            <h3 className="text-xs sm:text-sm font-semibold text-white mt-1">
+                            <h3 className="text-xs font-bold mt-0.5">
                               {issue.title}
                             </h3>
                           )}
-                          <p className="text-xs sm:text-sm text-gray-300">
+                          <p className="text-xs text-gray-400 leading-relaxed">
                             {issue.description}
                           </p>
                           {issue.suggestedFix && (
-                            <div className="mt-2 sm:mt-3 bg-black/50 p-2 sm:p-3 rounded border border-white/5 relative group">
-                              <div className="text-[10px] sm:text-xs text-gray-500 mb-1.5 sm:mb-2">
+                            <div className={`mt-2 p-2.5 rounded border relative group ${
+                              isLight ? "bg-gray-100 border-gray-200" : "bg-black/60 border-white/5"
+                            }`}>
+                              <div className="text-[10px] font-bold uppercase text-gray-400 mb-1">
                                 Suggested Fix:
                               </div>
-                              <pre className="text-[10px] sm:text-sm text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap">
+                              <pre className="text-xs font-mono overflow-x-auto whitespace-pre-wrap">
                                 {issue.suggestedFix}
                               </pre>
                               <button
-                                className="absolute top-1 sm:top-2 right-1 sm:right-2 bg-primary/20 text-primary hover:bg-primary/30 border border-primary/30 px-2 sm:px-3 py-1 sm:py-1.5 rounded text-[10px] sm:text-xs opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex items-center gap-1 font-medium"
+                                className="absolute top-2 right-2 bg-primary/20 text-primary hover:bg-primary/30 border border-primary/30 px-2 py-1 rounded text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                                 onClick={() => handleApplyFix(issue)}
                               >
                                 Accept Fix
@@ -514,31 +692,23 @@ export default function CodeSenseApp() {
             {/* ── Console ──────────────────────────────────── */}
             {activeRightTab === "console" && (
               <div className="flex flex-col h-full">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
-                    <Terminal className="w-4 h-4 sm:w-5 sm:h-5" /> Console
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                    <Terminal className="w-3.5 h-3.5" /> Console Output
                   </h2>
-                  <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="flex items-center gap-2">
                     {execTime !== null && (
-                      <span className="text-[10px] sm:text-xs text-gray-500">
+                      <span className="text-[10px] font-mono text-gray-400">
                         {execTime}ms
                       </span>
                     )}
-                    <button
-                      onClick={executeCode}
-                      disabled={isExecuting || !activeTab}
-                      className="flex items-center gap-1.5 sm:gap-2 bg-emerald-600 text-white px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-semibold hover:bg-emerald-500 transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      {isExecuting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                      Run Code
-                    </button>
                     {execResult && (
                       <button
                         onClick={() => {
                           setExecResult(null);
                           setExecTime(null);
                         }}
-                        className="text-[10px] sm:text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer"
+                        className="text-[11px] text-gray-400 hover:text-gray-200 transition-colors cursor-pointer"
                       >
                         Clear
                       </button>
@@ -547,68 +717,56 @@ export default function CodeSenseApp() {
                 </div>
 
                 {isExecuting ? (
-                  <div className="flex flex-col items-center justify-center flex-1 text-gray-500 gap-4 py-20">
-                    <Loader2 className="w-10 h-10 animate-spin text-emerald-400/40" />
-                    <p className="text-sm">Executing your code…</p>
+                  <div className="flex flex-col items-center justify-center flex-1 text-gray-400 gap-3 py-16">
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
+                    <p className="text-xs">Executing code…</p>
                   </div>
                 ) : !execResult ? (
-                  <div className="flex flex-col items-center justify-center flex-1 text-gray-500 gap-4 py-20">
-                    <Terminal className="w-12 h-12 opacity-20" />
-                    <p className="text-sm text-center">
-                      Click <strong>&quot;Run&quot;</strong> to execute
-                      your code.
-                    </p>
-                    <p className="text-xs text-gray-600 text-center">
-                      Supports JavaScript (Node.js) and Python
+                  <div className="flex flex-col items-center justify-center flex-1 text-gray-400 gap-2 py-16">
+                    <Terminal className="w-8 h-8 opacity-20" />
+                    <p className="text-xs text-center">
+                      Click <strong>&quot;Run&quot;</strong> or press <strong>Ctrl+Enter</strong> to execute.
                     </p>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-3 flex-1 min-h-0 pb-10">
-                    {/* Exit code badge */}
+                  <div className="flex flex-col gap-2.5 flex-1 min-h-0 pb-6">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`text-[10px] sm:text-xs font-bold px-2 py-1 rounded ${
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                           execResult.exitCode === 0
-                            ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                             : "bg-red-500/20 text-red-400 border border-red-500/30"
                         }`}
                       >
                         Exit code: {execResult.exitCode}
                       </span>
                       {execResult.cloud && (
-                        <span className="text-[10px] sm:text-xs px-2 py-1 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center gap-1">
-                          ☁️ Cloud
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30 font-semibold">
+                          ☁️ Cloud Run
                         </span>
                       )}
                     </div>
 
-                    {/* stdout */}
                     {execResult.stdout && (
-                      <div className="flex-1 min-h-[100px] flex flex-col">
-                        <div className="text-[10px] sm:text-xs text-gray-500 mb-1 font-medium">
-                          stdout
-                        </div>
-                        <pre className="flex-1 console-output bg-[#0a0a0c] border border-panel-border rounded-lg p-3 sm:p-4 text-xs sm:text-sm text-green-300 font-mono whitespace-pre-wrap overflow-auto">
+                      <div className="flex-1 min-h-[80px] flex flex-col">
+                        <pre className={`flex-1 console-output p-3 rounded-md text-xs font-mono whitespace-pre-wrap overflow-auto border ${
+                          isLight ? "bg-gray-100 text-gray-900 border-gray-200" : "bg-[#0a0a0c] text-emerald-300 border-panel-border"
+                        }`}>
                           {execResult.stdout}
                         </pre>
                       </div>
                     )}
 
-                    {/* stderr */}
                     {execResult.stderr && (
-                      <div className="flex-1 min-h-[100px] flex flex-col">
-                        <div className="text-[10px] sm:text-xs text-gray-500 mb-1 font-medium">
-                          stderr
-                        </div>
-                        <pre className="flex-1 console-output bg-[#0a0a0c] border border-red-500/20 rounded-lg p-3 sm:p-4 text-xs sm:text-sm text-red-400 font-mono whitespace-pre-wrap overflow-auto">
+                      <div className="flex-1 min-h-[80px] flex flex-col">
+                        <pre className="flex-1 console-output bg-[#0a0a0c] border border-red-500/20 rounded-md p-3 text-xs text-red-400 font-mono whitespace-pre-wrap overflow-auto">
                           {execResult.stderr}
                         </pre>
                       </div>
                     )}
 
-                    {/* Empty output */}
                     {!execResult.stdout && !execResult.stderr && (
-                      <div className="text-gray-500 text-sm italic">
+                      <div className="text-gray-400 text-xs italic py-2">
                         Program produced no output.
                       </div>
                     )}
@@ -619,19 +777,21 @@ export default function CodeSenseApp() {
 
             {/* ── Docs ─────────────────────────────────────── */}
             {activeRightTab === "docs" && (
-              <div className="space-y-4">
-                <h2 className="text-base sm:text-lg font-semibold mb-4 text-white">
-                  Documentation
+              <div className="space-y-3">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                  AI Documentation
                 </h2>
                 {analysisResult?.documentation ? (
-                  <div className="glass-panel p-4 rounded-lg">
-                    <pre className="text-xs sm:text-sm text-gray-300 font-mono whitespace-pre-wrap">
+                  <div className={`p-3.5 rounded-lg border ${
+                    isLight ? "bg-white border-gray-200 shadow-xs" : "bg-white/5 border-panel-border"
+                  }`}>
+                    <pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
                       {analysisResult.documentation}
                     </pre>
                   </div>
                 ) : (
-                  <div className="text-gray-500 text-sm">
-                    Run an analysis to generate documentation.
+                  <div className="text-gray-400 text-xs py-8 text-center">
+                    Analyze code to automatically generate documentation.
                   </div>
                 )}
               </div>
@@ -639,20 +799,19 @@ export default function CodeSenseApp() {
 
             {/* ── Score ────────────────────────────────────── */}
             {activeRightTab === "score" && (
-              <div className="space-y-4">
-                <h2 className="text-base sm:text-lg font-semibold mb-4 text-white">
-                  Quality Score
+              <div className="space-y-3">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                  Code Quality Score
                 </h2>
                 {analysisResult?.quality_score != null ? (
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-6 glass-panel p-4 sm:p-6 rounded-lg">
-                    <div className="relative w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center shrink-0 self-center">
-                      <svg
-                        className="w-full h-full transform -rotate-90"
-                        viewBox="0 0 36 36"
-                      >
+                  <div className={`p-4 rounded-lg border flex flex-col sm:flex-row items-center gap-4 ${
+                    isLight ? "bg-white border-gray-200 shadow-xs" : "bg-white/5 border-panel-border"
+                  }`}>
+                    <div className="relative w-18 h-18 flex items-center justify-center shrink-0">
+                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                         <path
-                          className="text-gray-800"
-                          strokeWidth="3"
+                          className={isLight ? "text-gray-200" : "text-gray-800"}
+                          strokeWidth="3.5"
                           stroke="currentColor"
                           fill="none"
                           d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
@@ -660,32 +819,32 @@ export default function CodeSenseApp() {
                         <path
                           className={`${
                             analysisResult.quality_score >= 80
-                              ? "text-green-500"
+                              ? "text-emerald-500"
                               : analysisResult.quality_score >= 60
                                 ? "text-yellow-500"
                                 : "text-red-500"
                           }`}
-                          strokeWidth="3"
+                          strokeWidth="3.5"
                           strokeDasharray={`${analysisResult.quality_score}, 100`}
                           stroke="currentColor"
                           fill="none"
                           d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                         />
                       </svg>
-                      <span className="absolute text-xl sm:text-2xl font-bold">
+                      <span className="absolute text-xl font-bold font-mono">
                         {analysisResult.quality_score}
                       </span>
                     </div>
                     <div className="flex-1 text-center sm:text-left">
-                      <h3 className="font-medium text-white mb-1 sm:mb-2 text-sm sm:text-base">Summary</h3>
-                      <p className="text-xs sm:text-sm text-gray-400">
-                        {analysisResult.summary || "No summary provided."}
+                      <h3 className="font-bold text-xs uppercase text-gray-400 mb-1">Quality Assessment</h3>
+                      <p className="text-xs text-gray-400 leading-relaxed">
+                        {analysisResult.summary || "Code quality analyzed successfully."}
                       </p>
                     </div>
                   </div>
                 ) : (
-                  <div className="text-gray-500 text-sm">
-                    Run an analysis to see a quality score.
+                  <div className="text-gray-400 text-xs py-8 text-center">
+                    Analyze code to compute quality metric score.
                   </div>
                 )}
               </div>

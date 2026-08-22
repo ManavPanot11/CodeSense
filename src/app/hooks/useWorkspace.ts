@@ -146,6 +146,36 @@ export function useWorkspace() {
     });
   }, [setWorkspaceState]);
 
+  const updateTabNameAndLanguage = useCallback((fileId: string, name: string, language: string) => {
+    setWorkspaceState((prev) => {
+      const parentId = fileId.includes('/') ? fileId.substring(0, fileId.lastIndexOf('/')) : null;
+      const newId = parentId ? `${parentId}/${name}` : name;
+
+      const updateTree = (nodes: FileNode[]): FileNode[] => {
+        return nodes.map((node) => {
+          if (node.id === fileId) {
+            return { ...node, id: newId, name, language };
+          }
+          if (node.children) {
+            return { ...node, children: updateTree(node.children) };
+          }
+          return node;
+        });
+      };
+
+      const newOpenTabs = prev.openTabs.map((t) =>
+        t.fileId === fileId ? { ...t, fileId: newId, name, language } : t
+      );
+
+      return {
+        ...prev,
+        fileTree: updateTree(prev.fileTree),
+        openTabs: newOpenTabs,
+        activeTabId: prev.activeTabId === fileId ? newId : prev.activeTabId,
+      };
+    });
+  }, [setWorkspaceState]);
+
   const saveActiveTab = useCallback(() => {
     setWorkspaceState((prev) => {
       if (!prev.activeTabId) return prev;
@@ -189,14 +219,70 @@ export function useWorkspace() {
     });
   }, [setWorkspaceState]);
 
-  // --- Folder Upload ---
-
   const uploadWorkspace = useCallback((fileTree: FileNode[]) => {
     setWorkspaceState(() => ({
       fileTree,
       openTabs: [],
       activeTabId: null,
     }));
+  }, [setWorkspaceState]);
+
+  const addFiles = useCallback((newNodes: FileNode[]) => {
+    setWorkspaceState((prev) => {
+      // Find existing IDs to avoid duplicate collisions
+      const existingIds = new Set<string>();
+      const collectIds = (nodes: FileNode[]) => {
+        for (const n of nodes) {
+          existingIds.add(n.id);
+          if (n.children) collectIds(n.children);
+        }
+      };
+      collectIds(prev.fileTree);
+
+      const filteredNewNodes = newNodes.filter(n => !existingIds.has(n.id));
+      const updatedTree = [...prev.fileTree, ...filteredNewNodes];
+
+      // Auto-open the first file if available
+      let firstFile: FileNode | null = null;
+      const findFirstFile = (nodes: FileNode[]) => {
+        for (const n of nodes) {
+          if (n.type === "file") {
+            firstFile = n;
+            return;
+          }
+          if (n.children) findFirstFile(n.children);
+        }
+      };
+      findFirstFile(newNodes);
+
+      if (firstFile) {
+        const target: FileNode = firstFile;
+        const alreadyOpen = prev.openTabs.some(t => t.fileId === target.id);
+        const newTabs = alreadyOpen
+          ? prev.openTabs
+          : [
+              ...prev.openTabs,
+              {
+                fileId: target.id,
+                name: target.name,
+                language: target.language || "plaintext",
+                content: target.content || "",
+                savedContent: target.content || "",
+              },
+            ];
+        return {
+          ...prev,
+          fileTree: updatedTree,
+          openTabs: newTabs,
+          activeTabId: target.id,
+        };
+      }
+
+      return {
+        ...prev,
+        fileTree: updatedTree,
+      };
+    });
   }, [setWorkspaceState]);
 
 
@@ -349,6 +435,8 @@ export function useWorkspace() {
     saveActiveTab,
     setCursorPosition,
     uploadWorkspace,
+    addFiles,
+    updateTabNameAndLanguage,
     createFile,
     createFolder,
     deleteNode,

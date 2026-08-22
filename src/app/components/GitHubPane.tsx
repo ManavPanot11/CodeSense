@@ -7,9 +7,10 @@ import { getFileTypeInfo } from "@/lib/fileTypes";
 
 interface GitHubPaneProps {
   onImportRepository: (tree: FileNode[]) => void;
+  theme?: "dark" | "light";
 }
 
-export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
+export default function GitHubPane({ onImportRepository, theme = "dark" }: GitHubPaneProps) {
   const { data: sessionData, status } = useSession();
   const session = sessionData as any;
   const [repos, setRepos] = useState<any[]>([]);
@@ -45,7 +46,6 @@ export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
     try {
       const octokit = new Octokit({ auth: session.accessToken as string });
       
-      // Fetch the full tree recursively
       const { data: treeData } = await octokit.rest.git.getTree({
         owner,
         repo,
@@ -55,18 +55,7 @@ export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
 
       const rootNodes: FileNode[] = [];
       const dirMap = new Map<string, FileNode>();
-
-      // Ensure we only process files/blobs and construct the tree
       const files = treeData.tree.filter(t => t.type === "blob");
-      
-      // Since downloading all file contents at once for a huge repo is bad,
-      // we can lazily load content when opened, but to fit the current architecture,
-      // we'll fetch them in parallel if the repo is small, or just load paths.
-      // Wait, `FileNode` requires `content`. For a large repo, this will hit API rate limits.
-      // Let's modify `FileNode` so `content` is optional, and it can store its `sha` and `url`.
-      
-      // For this MVP implementation, we will fetch contents for the first 20 files to prevent hitting rate limits
-      // and for the rest we will set a placeholder that will prompt to fetch later. (Ideal is lazy load)
       
       let fetchedFiles = 0;
 
@@ -84,7 +73,6 @@ export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
           if (isFile) {
             let content = "// Content not loaded. Double click to fetch.";
             
-            // Only eagerly fetch small files (under 1MB) and limit total eager fetches
             if (fetchedFiles < 30 && item.size && item.size < 100000) {
                try {
                  const { data: fileData } = await octokit.rest.repos.getContent({
@@ -142,16 +130,16 @@ export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
   if (!session) {
     return (
       <div className="p-6 flex flex-col items-center justify-center text-center">
-        <GitBranch className="w-12 h-12 text-gray-400 mb-4" />
-        <h3 className="text-lg font-semibold text-gray-200 mb-2">Connect to GitHub</h3>
-        <p className="text-sm text-gray-400 mb-6">
+        <GitBranch className="w-10 h-10 text-gray-400 mb-3" />
+        <h3 className="text-sm font-semibold mb-1">Connect to GitHub</h3>
+        <p className="text-xs text-gray-400 mb-5">
           Log in to view your repositories, import projects, and push changes directly from CodeSense.
         </p>
         <button 
           onClick={() => signIn("github")}
-          className="flex items-center gap-2 bg-[#2ea043] hover:bg-[#2c974b] text-white px-4 py-2 rounded-md font-medium transition-colors"
+          className="flex items-center gap-2 bg-[#2ea043] hover:bg-[#2c974b] text-white px-4 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer"
         >
-          <LogIn className="w-4 h-4" /> Continue with GitHub
+          <LogIn className="w-3.5 h-3.5" /> Continue with GitHub
         </button>
       </div>
     );
@@ -160,67 +148,82 @@ export default function GitHubPane({ onImportRepository }: GitHubPaneProps) {
   const filteredRepos = repos.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-panel-border flex flex-col gap-3">
+    <div className={`flex flex-col h-full ${theme === "light" ? "text-gray-800" : "text-gray-200"}`}>
+      <div className={`p-3 border-b flex flex-col gap-2.5 ${theme === "light" ? "border-gray-200" : "border-panel-border"}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {session.user?.image ? (
-              <img src={session.user.image} alt="" className="w-6 h-6 rounded-full" />
+              <img src={session.user.image} alt="" className="w-5 h-5 rounded-full" />
             ) : (
-              <GitBranch className="w-5 h-5 text-gray-300" />
+              <GitBranch className="w-4 h-4 text-gray-400" />
             )}
-            <span className="text-sm font-medium text-gray-200">{session.user?.name || session.user?.email}</span>
+            <span className="text-xs font-semibold truncate max-w-[140px]">{session.user?.name || session.user?.email}</span>
           </div>
           <button 
             onClick={() => signOut()}
-            className="text-gray-400 hover:text-red-400 transition-colors"
+            className="text-gray-400 hover:text-red-400 transition-colors p-1"
             title="Log out"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
         
         <div className="relative">
-          <Search className="w-4 h-4 absolute left-2 top-2 text-gray-500" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
           <input 
             type="text" 
             placeholder="Search repositories..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-black/50 border border-panel-border rounded-md pl-8 pr-3 py-1.5 text-sm text-gray-200 outline-none focus:border-primary transition-colors"
+            className={`w-full border rounded-md pl-8 pr-2.5 py-1.5 text-xs outline-none focus:border-primary transition-colors ${
+              theme === "light" 
+                ? "bg-white border-gray-300 text-gray-900 placeholder:text-gray-400" 
+                : "bg-black/50 border-panel-border text-gray-200 placeholder:text-gray-500"
+            }`}
           />
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
         {loading ? (
-          <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+          <div className="flex justify-center p-6"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
         ) : filteredRepos.length === 0 ? (
-          <div className="text-center p-8 text-gray-500 text-sm">No repositories found.</div>
+          <div className="text-center p-6 text-gray-500 text-xs">No repositories found.</div>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             {filteredRepos.map(repo => (
-              <div key={repo.id} className="group flex flex-col p-3 rounded-md border border-transparent hover:border-panel-border hover:bg-white/5 transition-colors">
+              <div 
+                key={repo.id} 
+                className={`group flex flex-col p-2.5 rounded-md border transition-colors ${
+                  theme === "light"
+                    ? "border-gray-200 hover:border-gray-300 hover:bg-gray-100/70"
+                    : "border-panel-border hover:border-white/20 hover:bg-white/5"
+                }`}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex flex-col overflow-hidden">
-                    <span className="text-sm font-medium text-blue-400 truncate cursor-pointer hover:underline" onClick={() => window.open(repo.html_url, '_blank')}>
+                    <span 
+                      className="text-xs font-semibold text-blue-400 truncate cursor-pointer hover:underline" 
+                      onClick={() => window.open(repo.html_url, '_blank')}
+                    >
                       {repo.name}
                     </span>
                     {repo.description && (
-                      <span className="text-xs text-gray-500 truncate mt-1">{repo.description}</span>
+                      <span className="text-[11px] text-gray-400 truncate mt-0.5">{repo.description}</span>
                     )}
                   </div>
                   <button
                     onClick={() => handleImport(repo.owner.login, repo.name, repo.default_branch)}
                     disabled={importingRepo === repo.name}
-                    className="flex-shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-gray-300 p-1.5 rounded-md transition-colors disabled:opacity-50"
+                    className="shrink-0 flex items-center justify-center bg-white/10 hover:bg-white/20 text-gray-300 p-1.5 rounded transition-colors disabled:opacity-50 cursor-pointer"
                     title="Import Repository"
                   >
-                    {importingRepo === repo.name ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    {importingRepo === repo.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                <div className="flex items-center gap-2 mt-2 text-[11px] text-gray-400">
                   <span className="flex items-center gap-1"><Folder className="w-3 h-3" /> {repo.default_branch}</span>
+                  <span>•</span>
                   <span>{repo.private ? "Private" : "Public"}</span>
                 </div>
               </div>
