@@ -22,6 +22,18 @@ export async function POST(req: Request) {
     if (!code || !code.trim()) {
       return Response.json({ error: "No code provided" }, { status: 400 });
     }
+
+    // Skip analysis for plain text, markdown, json, html, css, scss
+    const skippedLanguages = ["plaintext", "markdown", "json", "html", "css", "scss", "txt", "md"];
+    if (skippedLanguages.includes(language?.toLowerCase())) {
+      return Response.json({
+        issues: [],
+        documentation: `Code analysis is not available for ${language}.`,
+        quality_score: 100,
+        summary: "Analysis skipped for non-programming format."
+      }, { status: 200 });
+    }
+
     if (!apiKey) {
       return Response.json(MOCK_RESPONSE, { status: 200 });
     }
@@ -74,7 +86,7 @@ Output strictly valid JSON with no markdown formatting (no \`\`\`json fences).`;
             model: modelToUse,
             stream: false,
             temperature: 0.1,
-            max_tokens: 1500,
+            max_tokens: 800,
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt },

@@ -30,6 +30,12 @@ import JSZip from "jszip";
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
+const isAnalyzableLang = (lang: string) => !["plaintext", "txt", "markdown", "md", "json", "html", "css", "scss"].includes((lang || "").toLowerCase());
+const isCompilableLang = (lang: string) => ["c", "cpp", "java", "rust", "go", "swift", "kotlin", "csharp"].includes((lang || "").toLowerCase());
+const isWebLang = (lang: string) => ["html", "css", "scss", "markdown", "md"].includes((lang || "").toLowerCase());
+const isJsonLang = (lang: string) => (lang || "").toLowerCase() === "json";
+const isExecutableLang = (lang: string) => isCompilableLang(lang) || ["python", "javascript", "typescript", "php", "ruby"].includes((lang || "").toLowerCase());
+
 export default function CodeSenseApp() {
   const {
     state: workspace,
@@ -59,6 +65,8 @@ export default function CodeSenseApp() {
   // ZIP Download State
   const [isZipping, setIsZipping] = useState(false);
   const [zipStatus, setZipStatus] = useState("");
+
+  const [stdin, setStdin] = useState("");
 
   // Selected Files State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -139,6 +147,7 @@ export default function CodeSenseApp() {
   
   const editorRef = useRef<any>(null);
   const lastDetectedLangRef = useRef<string | null>(null);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeTab || !code.trim()) return;
@@ -162,6 +171,19 @@ export default function CodeSenseApp() {
   const analyzeCode = useCallback(async (isManual = false) => {
     const trimmedCode = code.trim();
     if (!trimmedCode) return;
+
+    const skippedLanguages = ["plaintext", "markdown", "json", "html", "css", "scss", "txt", "md"];
+    if (skippedLanguages.includes(language.toLowerCase())) {
+      if (isManual) {
+        setAnalysisResult({ 
+          issues: [], 
+          documentation: `Code analysis is not available for ${language}.`,
+          quality_score: 100,
+          summary: "Analysis skipped for non-programming format." 
+        });
+      }
+      return;
+    }
 
     // Avoid redundant duplicate requests unless clicked manually
     if (!isManual && trimmedCode === lastAnalyzedCodeRef.current) {
@@ -241,7 +263,7 @@ export default function CodeSenseApp() {
       const res = await fetch("/api/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, language }),
+        body: JSON.stringify({ code, language, stdin }),
       });
       const data = await res.json();
       setExecTime(Math.round(performance.now() - t0));
@@ -363,15 +385,24 @@ export default function CodeSenseApp() {
   // ── Keyboard Shortcuts ────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        saveActiveTab();
+        if (workspace?.activeTabId) {
+          const tab = workspace.openTabs.find(t => t.fileId === workspace.activeTabId);
+          if (tab) {
+            setSaveToast(`Saved ${tab.name}`);
+            setTimeout(() => setSaveToast(null), 2000);
+          }
+        }
+        return;
+      }
+      
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.closest('.monaco-editor')) {
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        saveActiveTab();
-      }
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
         executeCode();
@@ -450,10 +481,22 @@ export default function CodeSenseApp() {
     URL.revokeObjectURL(url);
   };
 
-  const handleEditorMount = (editor: any) => {
+  const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
     editor.onDidChangeCursorPosition((e: any) => {
       setCursorPosition(e.position.lineNumber, e.position.column);
+    });
+    
+    // Add Monaco-level save binding just in case
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      saveActiveTab();
+      if (workspace?.activeTabId) {
+        const tab = workspace.openTabs.find(t => t.fileId === workspace.activeTabId);
+        if (tab) {
+          setSaveToast(`Saved ${tab.name}`);
+          setTimeout(() => setSaveToast(null), 2000);
+        }
+      }
     });
   };
 
@@ -584,24 +627,65 @@ export default function CodeSenseApp() {
           )}
 
           {/* Run Code */}
-          <button
-            onClick={executeCode}
-            disabled={isExecuting || !activeTab}
-            className="flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-1 rounded-md text-xs font-semibold hover:bg-emerald-500 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
-          >
-            {isExecuting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{isExecuting ? "Running…" : "Run"}</span>
-          </button>
+          {isExecutableLang(language) && (
+            <button
+              onClick={executeCode}
+              disabled={isExecuting || !activeTab}
+              className="flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-1 rounded-md text-xs font-semibold hover:bg-emerald-500 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+            >
+              {isExecuting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">
+                {isExecuting ? "Running…" : (isCompilableLang(language) ? "Compile & Run" : "Run")}
+              </span>
+            </button>
+          )}
+
+          {/* Web Preview */}
+          {isWebLang(language) && (
+            <button
+              onClick={() => {
+                setExecResult({ stdout: "Preview mode not fully integrated.", stderr: "", exitCode: 0 });
+                setActiveRightTab("console");
+              }}
+              disabled={!activeTab}
+              className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1 rounded-md text-xs font-semibold hover:bg-blue-500 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Preview</span>
+            </button>
+          )}
+
+          {/* Validate JSON */}
+          {isJsonLang(language) && (
+            <button
+              onClick={() => {
+                try {
+                  JSON.parse(code);
+                  setExecResult({ stdout: "Valid JSON.", stderr: "", exitCode: 0 });
+                } catch (e: any) {
+                  setExecResult({ stdout: "", stderr: e.message, exitCode: 1 });
+                }
+                setActiveRightTab("console");
+              }}
+              disabled={!activeTab}
+              className="flex items-center gap-1.5 bg-yellow-600 text-white px-3 py-1 rounded-md text-xs font-semibold hover:bg-yellow-500 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Validate</span>
+            </button>
+          )}
 
           {/* Analyze */}
-          <button
-            onClick={() => analyzeCode(true)}
-            disabled={isAnalyzing || !activeTab}
-            className="flex items-center gap-1.5 bg-primary text-black px-3 py-1 rounded-md text-xs font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
-          >
-            {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{isAnalyzing ? "Analyzing…" : "Analyze"}</span>
-          </button>
+          {isAnalyzableLang(language) && (
+            <button
+              onClick={() => analyzeCode(true)}
+              disabled={isAnalyzing || !activeTab}
+              className="flex items-center gap-1.5 bg-primary text-black px-3 py-1 rounded-md text-xs font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+            >
+              {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isAnalyzing ? "Analyzing…" : "Analyze"}</span>
+            </button>
+          )}
 
           {/* Download Code & Docs */}
           <div className="flex items-center gap-1">
@@ -671,6 +755,14 @@ export default function CodeSenseApp() {
         theme={theme}
         hasActiveFile={!!activeTab}
       />
+
+      {/* Save Toast */}
+      {saveToast && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-4 py-2 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <Check className="w-3.5 h-3.5" />
+          {saveToast}
+        </div>
+      )}
 
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
@@ -945,6 +1037,19 @@ export default function CodeSenseApp() {
                       </button>
                     )}
                   </div>
+                </div>
+
+                {/* Standard Input */}
+                <div className="mb-4">
+                  <h3 className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Standard Input (stdin)</h3>
+                  <textarea
+                    value={stdin}
+                    onChange={(e) => setStdin(e.target.value)}
+                    placeholder="Enter input for your program here..."
+                    className={`w-full h-16 resize-y rounded-md p-2 text-xs font-mono outline-none border focus:border-emerald-500 transition-colors ${
+                      isLight ? "bg-white border-gray-300 text-gray-900" : "bg-[#0a0a0c] border-panel-border text-gray-300"
+                    }`}
+                  />
                 </div>
 
                 {isExecuting ? (
