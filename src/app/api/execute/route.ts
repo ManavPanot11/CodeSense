@@ -89,7 +89,7 @@ Rules:
           },
         ],
         temperature: 0,
-        max_tokens: 1000, // Reduced to avoid OpenRouter limits
+        max_tokens: 250, // Lowered aggressively to avoid OpenRouter 402 errors
       }),
     }
   );
