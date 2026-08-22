@@ -126,9 +126,7 @@ export default function CodeSenseApp() {
     abortRef.current = controller;
 
     const reqId = ++currentReqIdRef.current;
-
-    // Strict 10-second timeout
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     setIsAnalyzing(true);
     if (isManual) {
@@ -161,7 +159,7 @@ export default function CodeSenseApp() {
         console.error("Analysis error:", err);
         setAnalysisResult({ error: err.message || "Analysis service unavailable." });
       } else if (isManual) {
-        setAnalysisResult({ error: "Analysis request timed out. Please retry." });
+        setAnalysisResult({ error: "Analysis request timed out. Please try again." });
       }
     } finally {
       clearTimeout(timeoutId);
@@ -176,7 +174,7 @@ export default function CodeSenseApp() {
     if (!code.trim() || isExecuting) return;
     const timer = setTimeout(() => {
       analyzeCode(false);
-    }, 1800); // 1.8s debounce after typing stops
+    }, 1500); // 1.5s debounce after typing stops
     return () => clearTimeout(timer);
   }, [code, language, isExecuting, analyzeCode]);
 
