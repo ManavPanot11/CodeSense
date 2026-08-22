@@ -65,6 +65,7 @@ export default function CodeSenseApp() {
   // ZIP Download State
   const [isZipping, setIsZipping] = useState(false);
   const [zipStatus, setZipStatus] = useState("");
+  const [isGeneratingDocs, setIsGeneratingDocs] = useState(false);
 
   const [stdin, setStdin] = useState("");
 
@@ -485,17 +486,44 @@ export default function CodeSenseApp() {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportDocs = () => {
-    if (!analysisResult?.documentation) return;
-    const blob = new Blob([analysisResult.documentation], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "README.md";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleExportDocs = async () => {
+    if (!activeTab || !activeTab.content) return;
+    
+    setIsGeneratingDocs(true);
+    try {
+      const res = await fetch("/api/generate-readme", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: activeTab.content,
+          language: activeTab.language || "plaintext",
+          filename: activeTab.name
+        })
+      });
+
+      let readmeContent = "";
+      if (res.ok) {
+        const data = await res.json();
+        readmeContent = data.readme || "No detailed documentation generated.";
+      } else {
+        readmeContent = `README generation failed.\nPlease try again later.`;
+      }
+
+      const blob = new Blob([readmeContent], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const baseName = activeTab.name.includes(".") ? activeTab.name.substring(0, activeTab.name.lastIndexOf(".")) : activeTab.name;
+      a.download = `${baseName}_readme.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export docs", err);
+    } finally {
+      setIsGeneratingDocs(false);
+    }
   };
 
   const handleEditorMount = (editor: any, monaco: any) => {
@@ -718,13 +746,13 @@ export default function CodeSenseApp() {
             </button>
             <button
               onClick={handleExportDocs}
-              disabled={!analysisResult?.documentation}
+              disabled={!activeTab || isGeneratingDocs}
               className={`flex items-center p-1.5 border rounded-md transition-colors cursor-pointer disabled:opacity-30 ${
                 isLight ? "border-gray-300 hover:bg-gray-200 text-gray-700" : "border-panel-border hover:bg-white/5 text-gray-300"
               }`}
-              title="Download Docs (README.md)"
+              title="Generate & Download Docs (README.md)"
             >
-              <Book className="w-3.5 h-3.5" />
+              {isGeneratingDocs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Book className="w-3.5 h-3.5" />}
             </button>
           </div>
 
