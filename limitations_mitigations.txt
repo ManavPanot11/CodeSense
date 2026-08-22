@@ -1,0 +1,36 @@
+=============================================================
+CODE SENSE - PROJECT LIMITATIONS & MITIGATIONS
+=============================================================
+
+1. NO BACKEND DATABASE (LOCAL PERSISTENCE ONLY)
+-------------------------------------------------------------
+- Limitation: User workspaces, imported GitHub repositories, and editor settings are stored locally in the browser using IndexedDB. If a user clears their browser cache, uses Incognito mode, or switches devices, their workspace data is lost.
+- Mitigation: CodeSense provides a robust "Download Workspace" feature that zips up the entire virtual file tree. Users are encouraged to export their code to their local machine to persist their work safely across sessions.
+
+2. API TOKEN EXHAUSTION (OPENROUTER AI)
+-------------------------------------------------------------
+- Limitation: Features like the Live Analyzer and Document Generation rely on external Large Language Models (LLMs) via OpenRouter. Because these features read entire source files, they can rapidly consume API tokens, eventually leading to a "402 Payment Required" error.
+- Mitigation:
+  - Debouncing: The Live Analyzer waits 1.5 seconds after the user stops typing before making an API call, preventing hundreds of redundant requests.
+  - Multi-Key Support: The architecture supports a dedicated `DOCS_OPENROUTER_API_KEY` for heavy documentation tasks, separating it from the core analyzer quota.
+  - Language Filtering: The AI is explicitly disabled for non-programming files (.txt, .md, .json) to preserve tokens.
+
+3. EXECUTION SANDBOX CONSTRAINTS (PISTON API)
+-------------------------------------------------------------
+- Limitation: Code execution relies on the Piston API, which runs code in highly restricted, ephemeral Docker containers. Scripts are limited in CPU time, memory, and cannot make outbound network requests (e.g., fetching a webpage via Python's `requests` will fail).
+- Mitigation: The editor includes a Standard Input (`stdin`) feature for algorithmic and logic testing. CodeSense is positioned as a lightweight sandbox for testing logic and algorithms rather than a full-stack server hosting environment.
+
+4. VIRTUAL FILE SYSTEM VS NATIVE TERMINAL
+-------------------------------------------------------------
+- Limitation: Since the IDE runs entirely in the browser, it lacks a true local terminal. Users cannot run package managers like `npm install` or `pip install` to add third-party libraries to their workspace.
+- Mitigation: The editor focuses on standard library execution. For complex projects requiring third-party dependencies, users can import a repo, use the AI Analyzer to review the logic, and then export the modified files to run locally on their native machine.
+
+5. AI HALLUCINATIONS & FALSE POSITIVES
+-------------------------------------------------------------
+- Limitation: The AI Code Analyzer may occasionally flag false-positive security vulnerabilities or suggest code improvements that aren't strictly necessary for simple scripts.
+- Mitigation: We implemented strict guardrails within the LLM's system prompt to prevent the invention of vulnerabilities. The UI separates feedback into distinct categories (Function, Design, Security, Readability) and prioritizes "Areas of Improvement" so users can filter out low-priority stylistic suggestions.
+
+6. BROWSER SHORTCUT CONFLICTS
+-------------------------------------------------------------
+- Limitation: Browsers naturally intercept native shortcuts like `Ctrl+S` (Save Page) or `Ctrl+W` (Close Tab), which can disrupt the IDE workflow.
+- Mitigation: Global event listeners heavily intercept and suppress default browser behaviors. `Ctrl+S` successfully updates the internal file tree and persists to IndexedDB, showing a custom green toast notification without triggering the browser's native save dialog.

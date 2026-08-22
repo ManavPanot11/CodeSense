@@ -29,26 +29,60 @@ export interface WorkspaceState {
 
 const STORAGE_KEY = "codesense_workspace_state";
 
+const INTRODUCTION_CONTENT = `Welcome to CodeSense! 🚀
+======================
+Your intelligent, browser-based coding sandbox.
+
+Here is a quick guide on how to navigate the editor:
+
+1. ⚡ Executing Code
+   - Write your code in languages like Python, C++, Java, Rust, or JavaScript.
+   - Click the "Run" or "Compile & Run" button in the top right.
+   - If your program requires input (e.g., standard input for C++ or Python), expand the "Stdin" panel in the bottom right Console and type your inputs there before running.
+
+2. 🧠 AI Code Analyst
+   - Click the "Analyze" button (lightning bolt) to get real-time feedback on your code.
+   - Switch to the "Score" tab in the right panel to see your code rated on Function, Design, Security, and Readability.
+   - Review the "Areas of Improvement" to see specific issues and suggestions.
+
+3. 📚 Auto-Documentation
+   - Need a README? Click the "Book" icon next to the download button in the top right.
+   - The AI will generate a highly detailed, professional markdown documentation file specifically for your active code.
+   - Switch to the "About" tab in the right panel for a quick overview of what your code does.
+
+4. 🐙 GitHub Integration
+   - Click the GitHub icon in the left sidebar to authenticate.
+   - Browse your repositories and click "Import" to pull them directly into your virtual workspace.
+
+5. 💾 File Management
+   - Use the File Explorer (left sidebar) to create, rename, or delete files and folders.
+   - Your workspace is automatically saved locally in your browser.
+   - Hit Ctrl+S / Cmd+S at any time to explicitly save.
+   - Need to take your code with you? Click "Download Workspace" to get a ZIP of all your files!
+
+Happy Coding!
+`;
+
 const DEFAULT_STATE: WorkspaceState = {
   fileTree: [
     {
-      id: "root/index.js",
-      name: "index.js",
+      id: "root/Introduction.txt",
+      name: "Introduction.txt",
       type: "file",
-      content: '// Write some code here...\nfunction calculateTotal(items) {\n  let total = 0;\n  for(let i = 0; i < items.length; i++) {\n    total += items[i].price;\n  }\n  return total;\n}\n\n// Try running it!\nconsole.log(calculateTotal([{price:10},{price:20},{price:30}]));',
-      language: "javascript",
+      content: INTRODUCTION_CONTENT,
+      language: "plaintext",
     }
   ],
   openTabs: [
     {
-      fileId: "root/index.js",
-      name: "index.js",
-      language: "javascript",
-      content: '// Write some code here...\nfunction calculateTotal(items) {\n  let total = 0;\n  for(let i = 0; i < items.length; i++) {\n    total += items[i].price;\n  }\n  return total;\n}\n\n// Try running it!\nconsole.log(calculateTotal([{price:10},{price:20},{price:30}]));',
-      savedContent: '// Write some code here...\nfunction calculateTotal(items) {\n  let total = 0;\n  for(let i = 0; i < items.length; i++) {\n    total += items[i].price;\n  }\n  return total;\n}\n\n// Try running it!\nconsole.log(calculateTotal([{price:10},{price:20},{price:30}]));'
+      fileId: "root/Introduction.txt",
+      name: "Introduction.txt",
+      language: "plaintext",
+      content: INTRODUCTION_CONTENT,
+      savedContent: INTRODUCTION_CONTENT
     }
   ],
-  activeTabId: "root/index.js"
+  activeTabId: "root/Introduction.txt"
 };
 
 import { getFileTypeInfo } from "@/lib/fileTypes";
