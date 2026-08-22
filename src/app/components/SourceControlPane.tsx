@@ -12,7 +12,8 @@ interface SourceControlPaneProps {
 }
 
 export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo, theme = "dark" }: SourceControlPaneProps) {
-  const { data: session } = useSession();
+  const { data: sessionData } = useSession();
+  const session = sessionData as any;
   const [commitMessage, setCommitMessage] = useState("");
   const [isPushing, setIsPushing] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error", message: string } | null>(null);
