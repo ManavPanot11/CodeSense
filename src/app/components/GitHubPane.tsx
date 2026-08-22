@@ -95,6 +95,7 @@ export default function GitHubPane({ onImportRepository, theme = "dark" }: GitHu
               name: part,
               type: "file",
               content,
+              originalContent: content,
               language: typeInfo.language,
             });
           } else {

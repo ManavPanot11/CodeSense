@@ -7,6 +7,7 @@ export interface FileNode {
   type: "file" | "folder";
   children?: FileNode[];
   content?: string;
+  originalContent?: string;
   language?: string;
 }
 

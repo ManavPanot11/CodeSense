@@ -28,7 +28,19 @@ export default function SourceControlPane({ fileTree, activeTabId, activeGitRepo
   };
 
   const allFiles = getAllFiles(fileTree);
-  const modifiedFiles = allFiles.filter(f => f.content !== undefined && f.content !== "// Content not loaded. Double click to fetch.");
+  // Only include files that have been genuinely modified by the user.
+  // If a file has an originalContent (imported from GitHub), compare against that.
+  // If a file has no originalContent (created locally), it's always considered modified.
+  const modifiedFiles = allFiles.filter(f => {
+    if (f.content === undefined) return false;
+    if (f.content === "// Content not loaded. Double click to fetch.") return false;
+    // If imported from GitHub, only count as modified if content actually changed
+    if (f.originalContent !== undefined) {
+      return f.content !== f.originalContent;
+    }
+    // Locally created files are always considered new/modified
+    return true;
+  });
 
   const handlePush = async () => {
     if (!commitMessage.trim() || !activeGitRepo || !session?.accessToken) return;
