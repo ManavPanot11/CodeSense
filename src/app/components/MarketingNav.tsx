@@ -5,8 +5,8 @@ export default function MarketingNav() {
   return (
     <nav className="flex items-center justify-between px-6 py-4 md:px-12 md:py-6 border-b border-white/5 bg-black/50 backdrop-blur-md sticky top-0 z-50">
       <div className="flex items-center gap-2">
-        <Link href="/" className="text-2xl font-black tracking-tighter text-white" style={{ textShadow: "2px 0 #00ffff, -2px 0 #ff003c" }}>
-          CodeSense
+        <Link href="/">
+          <img src="/logo.png" alt="CodeSense" className="h-6 md:h-8 object-contain" />
         </Link>
       </div>
       
