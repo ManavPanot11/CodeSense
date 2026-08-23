@@ -29,12 +29,13 @@ RULES FOR ANNOTATED CODE:
 2. DO NOT add comments to every single line. Only comment on important logic, functions, classes, complex algorithms, or API calls.
 3. DO NOT rewrite, mutate, rename, or change the logic of the original code in any way. The code must remain exactly the same, just with explanatory comments added around it.
 
-Respond ONLY with a raw, valid JSON object containing exactly two keys:
+Respond ONLY with a raw, valid JSON object containing exactly two keys: "readme" and "annotatedCode". 
+IMPORTANT: You MUST properly escape all double quotes (\`) inside your JSON strings to ensure the JSON is valid and can be parsed.
+
 {
   "readme": "Highly detailed, professional markdown documentation containing: Overview, Architecture, Functions/Classes deep dive, Dependencies, and Usage Context based on the actual code.",
   "annotatedCode": "The original code but with your detailed explanatory comments injected throughout."
-}
-Output strictly valid JSON with no markdown formatting blocks (no \`\`\`json fences).`;
+}`;
 
     const userPrompt = `File: ${filename}\nLanguage: ${language || "Unknown"}\n\nCode:\n${truncatedCode}`;
 
@@ -48,6 +49,7 @@ Output strictly valid JSON with no markdown formatting blocks (no \`\`\`json fen
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
